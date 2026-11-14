@@ -20,15 +20,42 @@ jura_f50:
     - logger.log:
         format: "Jura: %s"
         args: ['line.c_str()']
+  # Fires with (command, response) when a line answers a queued command.
+  on_response:
+    - lambda: |-
+        if (response.rfind("ok", 0) == 0) {
+          if (command == "AN:01") id(coffee_power).publish_state(true);
+          if (command == "AN:02") id(coffee_power).publish_state(false);
+        }
+  # Fires with (command) when no reply arrived within response_timeout.
+  on_response_timeout:
+    - logger.log:
+        format: "Jura did not answer '%s'"
+        args: ['command.c_str()']
+        level: WARN
 
 switch:
   - platform: template
     name: "Coffeemaker Power"
-    optimistic: true
+    id: coffee_power
+    icon: mdi:coffee-maker
+    # Not optimistic: state is only published once the Jura confirms with "ok:".
     turn_on_action:
       - lambda: id(jura).queue_command("AN:01");
     turn_off_action:
       - lambda: id(jura).queue_command("AN:02");
+
+# Optional: send arbitrary commands from Home Assistant for development
+# (Developer Tools -> Actions -> esphome.<node>_send_command).
+api:
+  actions:
+    - action: send_command
+      variables:
+        command: string
+      then:
+        - lambda: id(jura).queue_command(command);
 ```
 
-Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms).
+Queued commands are sent one at a time; the next command is dispatched once the previous one has been answered or timed out.
+
+Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 2s).
