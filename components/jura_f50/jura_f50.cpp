@@ -44,7 +44,6 @@ void JuraF50::dump_config() {
   ESP_LOGCONFIG(TAG, "  Intra-byte delay: %u us", (unsigned) this->intra_delay_us_);
   ESP_LOGCONFIG(TAG, "  Inter-frame delay: %u us", (unsigned) this->inter_delay_us_);
   ESP_LOGCONFIG(TAG, "  RX timeout: %u us", (unsigned) this->rx_timeout_us_);
-  this->check_uart_settings(9600);
 }
 
 void JuraF50::loop() {
