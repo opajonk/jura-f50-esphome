@@ -1,5 +1,7 @@
 #include "jura_f50.h"
 
+#include <cctype>
+
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
@@ -63,11 +65,13 @@ void JuraF50::write_payload(const std::string &data) {
 }
 
 void JuraF50::send_command(const std::string &command) {
+  ESP_LOGD(TAG, "TX command: %s", command.c_str());
   this->write_payload(command);
   this->write_payload("\r\n");
 }
 
 void JuraF50::queue_command(const std::string &command) {
+  ESP_LOGD(TAG, "Queueing command: %s", command.c_str());
   this->command_queue_.push_back(command);
   this->high_freq_.start();
 }
@@ -86,7 +90,9 @@ void JuraF50::process_tx_() {
       return;
     }
     this->high_freq_.start();
-    this->tx_frame_ = encode_byte(this->tx_queue_.front());
+    uint8_t payload = this->tx_queue_.front();
+    ESP_LOGV(TAG, "TX byte 0x%02X ('%c')", payload, isprint(payload) ? (char) payload : '.');
+    this->tx_frame_ = encode_byte(payload);
     this->tx_queue_.pop_front();
     this->tx_index_ = 0;
   }
@@ -118,11 +124,12 @@ void JuraF50::process_rx_() {
 }
 
 void JuraF50::handle_decoded_(uint8_t value) {
-  ESP_LOGV(TAG, "RX 0x%02X", value);
+  ESP_LOGV(TAG, "RX byte 0x%02X ('%c')", value, isprint(value) ? (char) value : '.');
   this->byte_callbacks_.call(value);
   if (value == '\n') {
     if (!this->line_.empty() && this->line_.back() == '\r')
       this->line_.pop_back();
+    ESP_LOGD(TAG, "RX line: %s", this->line_.c_str());
     this->line_callbacks_.call(this->line_);
     this->line_.clear();
   } else {
