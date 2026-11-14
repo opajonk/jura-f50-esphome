@@ -30,7 +30,7 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(JuraF50),
             cv.Optional(CONF_INTRA_BYTE_DELAY, default="1ms"): cv.positive_time_period_microseconds,
-            cv.Optional(CONF_INTER_FRAME_DELAY, default="7ms"): cv.positive_time_period_microseconds,
+            cv.Optional(CONF_INTER_FRAME_DELAY, default="8ms"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_RX_TIMEOUT, default="20ms"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_RESPONSE_TIMEOUT, default="2s"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_ON_LINE): automation.validate_automation(
