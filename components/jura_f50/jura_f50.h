@@ -46,14 +46,20 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void add_on_response_callback(std::function<void(const std::string &, const std::string &)> &&cb) {
     this->response_callbacks_.add(std::move(cb));
   }
+  // Called with the command when no response arrived within the response timeout.
+  void add_on_response_timeout_callback(std::function<void(const std::string &)> &&cb) {
+    this->response_timeout_callbacks_.add(std::move(cb));
+  }
 
   void set_intra_byte_delay_us(uint32_t us) { this->intra_delay_us_ = us; }
   void set_inter_frame_delay_us(uint32_t us) { this->inter_delay_us_ = us; }
   void set_rx_timeout_us(uint32_t us) { this->rx_timeout_us_ = us; }
+  void set_response_timeout_us(uint32_t us) { this->response_timeout_us_ = us; }
 
  protected:
   void process_rx_();
   void process_tx_();
+  void check_response_timeout_();
   void handle_decoded_(uint8_t value);
 
   // Timing from the original sketch: 1 ms before each UART byte, 7 ms after a frame.
@@ -61,6 +67,8 @@ class JuraF50 : public Component, public uart::UARTDevice {
   uint32_t inter_delay_us_{7000};
   // A partially received frame older than this is discarded to regain sync.
   uint32_t rx_timeout_us_{20000};
+  // A queued command with no reply within this window is reported via the response-timeout callback.
+  uint32_t response_timeout_us_{2000000};
 
   // Active only while a transmission is pending, so the 1 ms / 7 ms pacing is honoured.
   HighFrequencyLoopRequester high_freq_;
@@ -79,9 +87,11 @@ class JuraF50 : public Component, public uart::UARTDevice {
   std::string line_;
   std::string pending_command_;
   bool awaiting_response_{false};
+  uint32_t pending_since_us_{0};
   CallbackManager<void(uint8_t)> byte_callbacks_;
   CallbackManager<void(const std::string &)> line_callbacks_;
   CallbackManager<void(const std::string &, const std::string &)> response_callbacks_;
+  CallbackManager<void(const std::string &)> response_timeout_callbacks_;
 };
 
 class LineTrigger : public Trigger<std::string> {
@@ -96,6 +106,13 @@ class ResponseTrigger : public Trigger<std::string, std::string> {
   explicit ResponseTrigger(JuraF50 *parent) {
     parent->add_on_response_callback(
         [this](const std::string &command, const std::string &response) { this->trigger(command, response); });
+  }
+};
+
+class ResponseTimeoutTrigger : public Trigger<std::string> {
+ public:
+  explicit ResponseTimeoutTrigger(JuraF50 *parent) {
+    parent->add_on_response_timeout_callback([this](const std::string &command) { this->trigger(command); });
   }
 };
 

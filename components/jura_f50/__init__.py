@@ -9,6 +9,8 @@ CODEOWNERS = []
 
 CONF_ON_LINE = "on_line"
 CONF_ON_RESPONSE = "on_response"
+CONF_ON_RESPONSE_TIMEOUT = "on_response_timeout"
+CONF_RESPONSE_TIMEOUT = "response_timeout"
 CONF_INTRA_BYTE_DELAY = "intra_byte_delay"
 CONF_INTER_FRAME_DELAY = "inter_frame_delay"
 CONF_RX_TIMEOUT = "rx_timeout"
@@ -19,6 +21,9 @@ LineTrigger = jura_f50_ns.class_("LineTrigger", automation.Trigger.template(cg.s
 ResponseTrigger = jura_f50_ns.class_(
     "ResponseTrigger", automation.Trigger.template(cg.std_string, cg.std_string)
 )
+ResponseTimeoutTrigger = jura_f50_ns.class_(
+    "ResponseTimeoutTrigger", automation.Trigger.template(cg.std_string)
+)
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -27,11 +32,15 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_INTRA_BYTE_DELAY, default="1ms"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_INTER_FRAME_DELAY, default="7ms"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_RX_TIMEOUT, default="20ms"): cv.positive_time_period_microseconds,
+            cv.Optional(CONF_RESPONSE_TIMEOUT, default="2s"): cv.positive_time_period_microseconds,
             cv.Optional(CONF_ON_LINE): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(LineTrigger)}
             ),
             cv.Optional(CONF_ON_RESPONSE): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(ResponseTrigger)}
+            ),
+            cv.Optional(CONF_ON_RESPONSE_TIMEOUT): automation.validate_automation(
+                {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(ResponseTimeoutTrigger)}
             ),
         }
     )
@@ -51,6 +60,7 @@ async def to_code(config):
     cg.add(var.set_intra_byte_delay_us(config[CONF_INTRA_BYTE_DELAY]))
     cg.add(var.set_inter_frame_delay_us(config[CONF_INTER_FRAME_DELAY]))
     cg.add(var.set_rx_timeout_us(config[CONF_RX_TIMEOUT]))
+    cg.add(var.set_response_timeout_us(config[CONF_RESPONSE_TIMEOUT]))
     for conf in config.get(CONF_ON_LINE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [(cg.std_string, "line")], conf)
@@ -59,3 +69,6 @@ async def to_code(config):
         await automation.build_automation(
             trigger, [(cg.std_string, "command"), (cg.std_string, "response")], conf
         )
+    for conf in config.get(CONF_ON_RESPONSE_TIMEOUT, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [(cg.std_string, "command")], conf)

@@ -46,11 +46,23 @@ void JuraF50::dump_config() {
   ESP_LOGCONFIG(TAG, "  Intra-byte delay: %u us", (unsigned) this->intra_delay_us_);
   ESP_LOGCONFIG(TAG, "  Inter-frame delay: %u us", (unsigned) this->inter_delay_us_);
   ESP_LOGCONFIG(TAG, "  RX timeout: %u us", (unsigned) this->rx_timeout_us_);
+  ESP_LOGCONFIG(TAG, "  Response timeout: %u us", (unsigned) this->response_timeout_us_);
 }
 
 void JuraF50::loop() {
   this->process_rx_();
+  this->check_response_timeout_();
   this->process_tx_();
+}
+
+void JuraF50::check_response_timeout_() {
+  if (!this->awaiting_response_)
+    return;
+  if ((uint32_t) (micros() - this->pending_since_us_) < this->response_timeout_us_)
+    return;
+  ESP_LOGW(TAG, "No response to '%s' within timeout", this->pending_command_.c_str());
+  this->awaiting_response_ = false;
+  this->response_timeout_callbacks_.call(this->pending_command_);
 }
 
 void JuraF50::write_payload(uint8_t value) {
@@ -78,12 +90,12 @@ void JuraF50::queue_command(const std::string &command) {
 
 void JuraF50::process_tx_() {
   if (this->tx_index_ >= 4) {
-    // Dispatch the next queued command only once the previous one is fully sent.
-    if (this->tx_queue_.empty() && !this->command_queue_.empty()) {
-      if (this->awaiting_response_)
-        ESP_LOGW(TAG, "No response to '%s' before next command", this->pending_command_.c_str());
+    // Dispatch the next queued command only once the previous one is fully sent
+    // and its response has arrived or timed out.
+    if (this->tx_queue_.empty() && !this->command_queue_.empty() && !this->awaiting_response_) {
       this->pending_command_ = this->command_queue_.front();
       this->awaiting_response_ = true;
+      this->pending_since_us_ = micros();
       this->send_command(this->pending_command_);
       this->command_queue_.pop_front();
     }
