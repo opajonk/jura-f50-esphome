@@ -80,7 +80,11 @@ void JuraF50::process_tx_() {
   if (this->tx_index_ >= 4) {
     // Dispatch the next queued command only once the previous one is fully sent.
     if (this->tx_queue_.empty() && !this->command_queue_.empty()) {
-      this->send_command(this->command_queue_.front());
+      if (this->awaiting_response_)
+        ESP_LOGW(TAG, "No response to '%s' before next command", this->pending_command_.c_str());
+      this->pending_command_ = this->command_queue_.front();
+      this->awaiting_response_ = true;
+      this->send_command(this->pending_command_);
       this->command_queue_.pop_front();
     }
     if (this->tx_queue_.empty()) {
@@ -131,6 +135,10 @@ void JuraF50::handle_decoded_(uint8_t value) {
       this->line_.pop_back();
     ESP_LOGD(TAG, "RX line: %s", this->line_.c_str());
     this->line_callbacks_.call(this->line_);
+    if (this->awaiting_response_) {
+      this->awaiting_response_ = false;
+      this->response_callbacks_.call(this->pending_command_, this->line_);
+    }
     this->line_.clear();
   } else {
     this->line_.push_back(static_cast<char>(value));

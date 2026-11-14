@@ -42,6 +42,10 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void add_on_line_callback(std::function<void(const std::string &)> &&cb) {
     this->line_callbacks_.add(std::move(cb));
   }
+  // Called with (command, response) when a line arrives while a queued command is awaiting a reply.
+  void add_on_response_callback(std::function<void(const std::string &, const std::string &)> &&cb) {
+    this->response_callbacks_.add(std::move(cb));
+  }
 
   void set_intra_byte_delay_us(uint32_t us) { this->intra_delay_us_ = us; }
   void set_inter_frame_delay_us(uint32_t us) { this->inter_delay_us_ = us; }
@@ -73,14 +77,25 @@ class JuraF50 : public Component, public uart::UARTDevice {
   uint32_t rx_last_us_{0};
 
   std::string line_;
+  std::string pending_command_;
+  bool awaiting_response_{false};
   CallbackManager<void(uint8_t)> byte_callbacks_;
   CallbackManager<void(const std::string &)> line_callbacks_;
+  CallbackManager<void(const std::string &, const std::string &)> response_callbacks_;
 };
 
 class LineTrigger : public Trigger<std::string> {
  public:
   explicit LineTrigger(JuraF50 *parent) {
     parent->add_on_line_callback([this](const std::string &line) { this->trigger(line); });
+  }
+};
+
+class ResponseTrigger : public Trigger<std::string, std::string> {
+ public:
+  explicit ResponseTrigger(JuraF50 *parent) {
+    parent->add_on_response_callback(
+        [this](const std::string &command, const std::string &response) { this->trigger(command, response); });
   }
 };
 
