@@ -36,9 +36,55 @@ uint8_t decode_frame(const Frame &frame) {
   return value;
 }
 
+// Consecutive failed status polls before the power state is reported as unknown.
+static constexpr uint8_t STATUS_MAX_FAILURES = 3;
+
+optional<bool> parse_power_status(const std::string &response) {
+  if (response.size() != 7 || response.compare(0, 3, "rr:") != 0)
+    return {};
+  for (size_t i = 3; i < response.size(); i++) {
+    if (!isxdigit(static_cast<unsigned char>(response[i])))
+      return {};
+  }
+  return response[3] != '0' || response[4] != '0';
+}
+
 void JuraF50::setup() {
   this->tx_last_us_ = micros();
   this->rx_last_us_ = micros();
+#ifdef USE_BINARY_SENSOR
+  if (this->power_sensor_ == nullptr)
+    return;
+  this->add_on_response_callback([this](const std::string &command, const std::string &response) {
+    this->handle_status_(command, parse_power_status(response));
+  });
+  this->add_on_response_timeout_callback([this](const std::string &command) { this->handle_status_(command, {}); });
+  this->set_interval("status", this->status_interval_ms_, [this]() { this->poll_status_(); });
+  this->poll_status_();
+#endif
+}
+
+void JuraF50::poll_status_() {
+  if (this->status_pending_)
+    return;
+  this->status_pending_ = true;
+  this->queue_command(POWER_STATUS_COMMAND);
+}
+
+void JuraF50::handle_status_(const std::string &command, const optional<bool> &power) {
+  if (command != POWER_STATUS_COMMAND)
+    return;
+  this->status_pending_ = false;
+#ifdef USE_BINARY_SENSOR
+  if (power.has_value()) {
+    this->status_failures_ = 0;
+    this->power_sensor_->publish_state(*power);
+    return;
+  }
+  ESP_LOGW(TAG, "Power status poll failed");
+  if (this->status_failures_ < STATUS_MAX_FAILURES && ++this->status_failures_ == STATUS_MAX_FAILURES)
+    this->power_sensor_->invalidate_state();
+#endif
 }
 
 void JuraF50::dump_config() {
@@ -47,6 +93,12 @@ void JuraF50::dump_config() {
   ESP_LOGCONFIG(TAG, "  Inter-frame delay: %u us", (unsigned) this->inter_delay_us_);
   ESP_LOGCONFIG(TAG, "  RX timeout: %u us", (unsigned) this->rx_timeout_us_);
   ESP_LOGCONFIG(TAG, "  Response timeout: %u us", (unsigned) this->response_timeout_us_);
+#ifdef USE_BINARY_SENSOR
+  if (this->power_sensor_ != nullptr) {
+    LOG_BINARY_SENSOR("  ", "Power", this->power_sensor_);
+    ESP_LOGCONFIG(TAG, "  Status interval: %u ms", (unsigned) this->status_interval_ms_);
+  }
+#endif
 }
 
 void JuraF50::loop() {

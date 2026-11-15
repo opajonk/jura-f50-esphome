@@ -7,9 +7,14 @@
 #include <string>
 
 #include "esphome/core/automation.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/optional.h"
 #include "esphome/components/uart/uart.h"
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
 
 namespace esphome {
 namespace jura_f50 {
@@ -21,6 +26,12 @@ using Frame = std::array<uint8_t, 4>;
 
 Frame encode_byte(uint8_t value);
 uint8_t decode_frame(const Frame &frame);
+
+// RR:44 reads RAM bytes 0x44/0x45; byte 0x44 is 01 while the machine is on and 00 while it is off
+// (observed on an EPSILON MASK 11 across off, heating, rinsing and ready states).
+static const char *const POWER_STATUS_COMMAND = "RR:44";
+// Returns the power state encoded in a "rr:XXYY" reply, or nullopt if the reply is malformed.
+optional<bool> parse_power_status(const std::string &response);
 
 class JuraF50 : public Component, public uart::UARTDevice {
  public:
@@ -55,12 +66,18 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void set_inter_frame_delay_us(uint32_t us) { this->inter_delay_us_ = us; }
   void set_rx_timeout_us(uint32_t us) { this->rx_timeout_us_ = us; }
   void set_response_timeout_us(uint32_t us) { this->response_timeout_us_ = us; }
+  void set_status_interval_ms(uint32_t ms) { this->status_interval_ms_ = ms; }
+#ifdef USE_BINARY_SENSOR
+  void set_power_binary_sensor(binary_sensor::BinarySensor *sensor) { this->power_sensor_ = sensor; }
+#endif
 
  protected:
   void process_rx_();
   void process_tx_();
   void check_response_timeout_();
   void handle_decoded_(uint8_t value);
+  void poll_status_();
+  void handle_status_(const std::string &command, const optional<bool> &power);
 
   // Timing from the original sketch: 1 ms before each UART byte, 7 ms after a frame.
   uint32_t intra_delay_us_{1000};
@@ -88,6 +105,12 @@ class JuraF50 : public Component, public uart::UARTDevice {
   std::string pending_command_;
   bool awaiting_response_{false};
   uint32_t pending_since_us_{0};
+  uint32_t status_interval_ms_{10000};
+  bool status_pending_{false};
+  uint8_t status_failures_{0};
+#ifdef USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *power_sensor_{nullptr};
+#endif
   CallbackManager<void(uint8_t)> byte_callbacks_;
   CallbackManager<void(const std::string &)> line_callbacks_;
   CallbackManager<void(const std::string &, const std::string &)> response_callbacks_;
