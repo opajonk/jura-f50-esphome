@@ -12,7 +12,7 @@ class CounterTestJura : public esphome::jura_f50::JuraF50 {
   std::string take_command() {
     if (this->command_queue_.empty())
       std::abort();
-    auto command = this->command_queue_.front();
+    auto command = this->command_queue_.front().command;
     this->command_queue_.pop_front();
     return command;
   }

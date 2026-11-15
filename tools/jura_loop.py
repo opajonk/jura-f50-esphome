@@ -18,8 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIGURATION = "jura-coffee-machine.yaml"
 ADDON = "5c53de3b_esphome"
 ACTION = "jura_coffee_machine_send_command"
+STATUS_PAUSE_ACTION = "jura_coffee_machine_set_status_polling_paused"
 SOURCE = "github://opajonk/jura-f50-esphome"
 ANSI = re.compile(r"(?:\x1b|\\033)\[[0-9;]*m")
+STATUS_PAUSE_EVENT = re.compile(r"\[jura_f50(?::\d+)?\]: Status polling (pause ready|resumed)$")
 
 
 class LoopError(Exception):
@@ -329,6 +331,8 @@ class LogStream:
         self.ha = ha
         self.builder = builder
         self.message_id = None
+        self.status_pause_active = False
+        self.status_pause_renew_at = 0
 
     async def lines(self, timeout):
         try:
@@ -341,7 +345,12 @@ class LogStream:
             raise LoopError("Device log stream stopped; inspect the dashboard.")
         if msg.get("event") != "output":
             return []
-        return [ANSI.sub("", line) for line in msg.get("data", "").splitlines()]
+        lines = [ANSI.sub("", line) for line in msg.get("data", "").splitlines()]
+        if self.status_pause_active and any(
+            (event := STATUS_PAUSE_EVENT.search(line)) and event[1] == "resumed" for line in lines
+        ):
+            raise LoopError("Status polling resumed during the dump; refusing to continue paused reads.")
+        return lines
 
     async def open(self):
         self.message_id = await self.builder.logs()
@@ -354,6 +363,37 @@ class LogStream:
             for line in await self.lines(timeout=0.5):
                 if "Successful handshake" in line or (ready_at is not None and "[C][" in line):
                     ready_at = loop.time() + 2
+
+    async def set_status_polling_paused(self, paused):
+        self.status_pause_active = paused
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        operation = "pause" if paused else "resume"
+        try:
+            await asyncio.wait_for(
+                self.ha.request("call_service", domain="esphome", service=STATUS_PAUSE_ACTION,
+                                service_data={"paused": paused}),
+                timeout=10,
+            )
+            deadline = loop.time() + 10
+            expected = "pause ready" if paused else "resumed"
+            while loop.time() < deadline:
+                for line in await self.lines(timeout=min(1, deadline - loop.time())):
+                    event = STATUS_PAUSE_EVENT.search(line)
+                    if event and event[1] == expected:
+                        self.status_pause_renew_at = started + 20 if paused else 0
+                        return
+            raise LoopError("No acknowledgement from the component.")
+        except (LoopError, OSError, asyncio.TimeoutError, aiohttp.ClientError) as exc:
+            detail = type(exc).__name__ if isinstance(exc, aiohttp.ClientError) else str(exc) or type(exc).__name__
+            raise LoopError(
+                f"Could not {operation} status polling: {detail} "
+                f"Check the {STATUS_PAUSE_ACTION} action and firmware; any pause expires within 60s."
+            ) from exc
+
+    async def ensure_status_pause(self):
+        if asyncio.get_running_loop().time() >= self.status_pause_renew_at:
+            await self.set_status_polling_paused(True)
 
     async def query(self, command, timeout=10):
         tracker = ResponseTracker(command)
@@ -369,11 +409,13 @@ class LogStream:
         raise CommandTimeout(f"No log response for {command}.")
 
 
-async def read_words(stream, start, end, attempts, progress=None, kind="RE"):
+async def read_words(stream, start, end, attempts, progress=None, kind="RE", pause_status=False):
     words = {}
     for address in range(start, end + 1):
         command = read_command(address, kind)
         for attempt in range(1, attempts + 1):
+            if pause_status:
+                await stream.ensure_status_pause()
             try:
                 words[address] = parse_word(await stream.query(command), kind)
                 break
@@ -399,7 +441,20 @@ async def dump(ha, builder, args):
         if done % WORDS_PER_LINE == 0 or done == total:
             print(f"\r{done}/{total} words", end="", file=sys.stderr, flush=True)
 
-    words = await read_words(stream, args.start, args.end, args.attempts, progress, args.kind)
+    try:
+        if args.pause_status:
+            await stream.ensure_status_pause()
+        words = await read_words(stream, args.start, args.end, args.attempts, progress, args.kind,
+                                 pause_status=args.pause_status)
+    finally:
+        if args.pause_status:
+            original_error = sys.exception()
+            try:
+                await stream.set_status_polling_paused(False)
+            except LoopError as exc:
+                if original_error is None:
+                    raise
+                print(f"Error during pause cleanup: {exc}", file=sys.stderr)
     print(file=sys.stderr)
     header = [f"label: {args.label}", f"command: {args.kind}:", f"started: {started.isoformat(timespec='seconds')}",
               f"range: {args.start:04X}-{args.end:04X}", f"missing: {total - len(words)}"]
@@ -465,6 +520,8 @@ def main():
     eeprom.add_argument("--label", default="dump", help="machine state note stored in the dump")
     eeprom.add_argument("--output", help="dump file (default: dumps/<timestamp>-<label>.txt)")
     eeprom.add_argument("--attempts", type=int, choices=range(1, 4), default=3)
+    eeprom.add_argument("--pause-status", action="store_true",
+                        help="pause automatic status polls during the dump (requires the pause API action)")
     compare = sub.add_parser("diff", help="list words whose read values differ between dump files")
     compare.add_argument("dumps", nargs="+")
     args = parser.parse_args()

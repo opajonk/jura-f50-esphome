@@ -1,0 +1,48 @@
+# Runs the real component against a fake UART, including 60-second lease expiry.
+esphome:
+  name: jura-pause-test
+  includes:
+    - pause_test.h
+  on_boot:
+    priority: 700
+    then:
+      - lambda: run_pause_tests(id(jura));
+      - delay: 1s
+      - lambda: expiry_probe.set_status_polling_paused(true);
+      - delay: 59500ms
+      - lambda: pause_check(expiry_probe.is_status_polling_paused(), "renewal must extend the lease");
+      - delay: 2s
+      - lambda: |-
+          pause_check(!expiry_probe.is_status_polling_paused(), "pause must expire");
+          ESP_LOGI("pause_test", "All polling pause tests passed");
+          std::exit(0);
+
+host:
+
+logger:
+  level: INFO
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [jura_f50]
+
+uart:
+  port: /dev/null
+  baud_rate: 9600
+
+jura_f50:
+  id: jura
+
+binary_sensor:
+  - platform: jura_f50
+    power:
+      name: Power state
+
+sensor:
+  - platform: jura_f50
+    single_coffee:
+      name: Single coffee counter
+    total_coffee:
+      name: Total coffee counter

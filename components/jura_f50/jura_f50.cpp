@@ -79,9 +79,13 @@ void JuraF50::setup() {
 #ifdef USE_SENSOR
   if (this->single_coffee_sensor_ != nullptr || this->total_coffee_sensor_ != nullptr) {
     this->add_on_response_callback([this](const std::string &command, const std::string &response) {
-      this->handle_counter_(command, parse_eeprom_word(response));
+      if (this->pending_command_source_ == CommandSource::COUNTER_POLL)
+        this->handle_counter_(command, parse_eeprom_word(response));
     });
-    this->add_on_response_timeout_callback([this](const std::string &command) { this->handle_counter_(command, {}); });
+    this->add_on_response_timeout_callback([this](const std::string &command) {
+      if (this->pending_command_source_ == CommandSource::COUNTER_POLL)
+        this->handle_counter_(command, {});
+    });
     this->set_interval("counters", this->counter_interval_ms_, [this]() { this->poll_counters_(); });
     this->poll_counters_();
   }
@@ -92,7 +96,7 @@ void JuraF50::setup() {
 static const char *const COUNTER_COMMANDS[] = {"RE:00", "RE:01", "RE:02", "RE:03", "RE:04", "RE:06"};
 
 void JuraF50::poll_counters_() {
-  if (this->counter_pending_)
+  if (this->status_polling_paused_ || this->counter_pending_)
     return;
   this->counter_pending_ = true;
   this->counter_index_ = 0;
@@ -100,7 +104,10 @@ void JuraF50::poll_counters_() {
   this->queue_counter_read_();
 }
 
-void JuraF50::queue_counter_read_() { this->queue_command(COUNTER_COMMANDS[this->counter_index_]); }
+void JuraF50::queue_counter_read_() {
+  this->command_queue_.push_back({COUNTER_COMMANDS[this->counter_index_], CommandSource::COUNTER_POLL});
+  this->high_freq_.start();
+}
 
 void JuraF50::handle_counter_(const std::string &command, const optional<uint16_t> &word) {
   if (!this->counter_pending_ || command != COUNTER_COMMANDS[this->counter_index_])
@@ -118,6 +125,10 @@ void JuraF50::handle_counter_(const std::string &command, const optional<uint16_
     this->single_coffee_sensor_->publish_state(*word);
   this->counter_total_ += *word;
   if (this->total_coffee_sensor_ != nullptr && ++this->counter_index_ < sizeof(COUNTER_COMMANDS) / sizeof(*COUNTER_COMMANDS)) {
+    if (this->status_polling_paused_) {
+      this->counter_pending_ = false;
+      return;
+    }
     this->queue_counter_read_();
     return;
   }
@@ -128,16 +139,63 @@ void JuraF50::handle_counter_(const std::string &command, const optional<uint16_
 #endif
 
 void JuraF50::poll_status_() {
-  if (this->status_pending_)
+  if (this->status_polling_paused_ || this->status_pending_)
     return;
   this->status_pending_ = true;
-  this->queue_command(POWER_STATUS_COMMAND);
+  this->command_queue_.push_back({POWER_STATUS_COMMAND, CommandSource::POWER_POLL});
+  this->high_freq_.start();
+}
+
+void JuraF50::set_status_polling_paused(bool paused) {
+  this->cancel_timeout("status_pause");
+  if (!paused) {
+    bool was_paused = this->status_polling_paused_;
+    this->status_polling_paused_ = false;
+    this->status_pause_ack_pending_ = false;
+    ESP_LOGI(TAG, "Status polling resumed");
+#ifdef USE_BINARY_SENSOR
+    if (was_paused && this->power_sensor_ != nullptr)
+      this->poll_status_();
+#endif
+#ifdef USE_SENSOR
+    if (was_paused && (this->single_coffee_sensor_ != nullptr || this->total_coffee_sensor_ != nullptr))
+      this->poll_counters_();
+#endif
+    return;
+  }
+  this->status_polling_paused_ = true;
+  this->status_pause_ack_pending_ = true;
+  for (auto it = this->command_queue_.begin(); it != this->command_queue_.end();) {
+    if (it->source != CommandSource::MANUAL) {
+      if (it->source == CommandSource::POWER_POLL)
+        this->status_pending_ = false;
+#ifdef USE_SENSOR
+      if (it->source == CommandSource::COUNTER_POLL)
+        this->counter_pending_ = false;
+#endif
+      it = this->command_queue_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  this->set_timeout("status_pause", 60000, [this]() { this->set_status_polling_paused(false); });
+  ESP_LOGI(TAG, "Status polling pause requested (expires in 60s)");
+  this->acknowledge_status_pause_();
+}
+
+void JuraF50::acknowledge_status_pause_() {
+  if (this->status_pause_ack_pending_ && !this->awaiting_response_ && this->tx_queue_.empty() &&
+      this->tx_index_ >= 4 && this->command_queue_.empty()) {
+    this->status_pause_ack_pending_ = false;
+    ESP_LOGI(TAG, "Status polling pause ready");
+  }
 }
 
 void JuraF50::handle_status_(const std::string &command, const optional<bool> &power) {
   if (command != POWER_STATUS_COMMAND)
     return;
-  this->status_pending_ = false;
+  if (this->pending_command_source_ == CommandSource::POWER_POLL)
+    this->status_pending_ = false;
 #ifdef USE_BINARY_SENSOR
   if (power.has_value()) {
     this->status_failures_ = 0;
@@ -175,6 +233,7 @@ void JuraF50::loop() {
   this->process_rx_();
   this->check_response_timeout_();
   this->process_tx_();
+  this->acknowledge_status_pause_();
 }
 
 void JuraF50::check_response_timeout_() {
@@ -206,7 +265,7 @@ void JuraF50::send_command(const std::string &command) {
 
 void JuraF50::queue_command(const std::string &command) {
   ESP_LOGD(TAG, "Queueing command: %s", command.c_str());
-  this->command_queue_.push_back(command);
+  this->command_queue_.push_back({command, CommandSource::MANUAL});
   this->high_freq_.start();
 }
 
@@ -215,7 +274,8 @@ void JuraF50::process_tx_() {
     // Dispatch the next queued command only once the previous one is fully sent
     // and its response has arrived or timed out.
     if (this->tx_queue_.empty() && !this->command_queue_.empty() && !this->awaiting_response_) {
-      this->pending_command_ = this->command_queue_.front();
+      this->pending_command_ = this->command_queue_.front().command;
+      this->pending_command_source_ = this->command_queue_.front().source;
       this->awaiting_response_ = true;
       this->pending_since_us_ = micros();
       this->send_command(this->pending_command_);

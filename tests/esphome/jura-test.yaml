@@ -10,6 +10,18 @@ esp32:
 
 logger:
 
+wifi:
+  ssid: compile-only
+  password: compile-only
+
+api:
+  actions:
+    - action: set_status_polling_paused
+      variables:
+        paused: bool
+      then:
+        - lambda: id(jura).set_status_polling_paused(paused);
+
 external_components:
   - source:
       type: local
@@ -26,6 +38,14 @@ jura_f50:
   id: jura
 
 switch:
+  - platform: template
+    id: status_polling_paused
+    name: Status polling paused
+    lambda: return id(jura).is_status_polling_paused();
+    turn_on_action:
+      - lambda: id(jura).set_status_polling_paused(true);
+    turn_off_action:
+      - lambda: id(jura).set_status_polling_paused(false);
   - platform: template
     id: coffee_power
     name: Power

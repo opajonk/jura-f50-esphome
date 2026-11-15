@@ -54,6 +54,12 @@ api:
         command: string
       then:
         - lambda: id(jura).queue_command(command);
+    # Optional: required for the CLI's dump --pause-status flag.
+    - action: set_status_polling_paused
+      variables:
+        paused: bool
+      then:
+        - lambda: id(jura).set_status_polling_paused(paused);
 ```
 
 Queued commands are sent one at a time; the next command is dispatched once the previous one has been answered or timed out.
@@ -106,6 +112,36 @@ A failed or malformed read reports the affected sensor as unknown and retries
 at the next polling interval. A total is published only after all six reads
 succeed; the reads are sequential, not an atomic snapshot during brewing.
 Both sensors use `total_increasing` state class for Home Assistant statistics.
+
+### Temporarily pausing status collection
+
+`id(jura).set_status_polling_paused(true)` pauses automatic power and coffee-counter
+polling for 60 seconds.
+Calling it again renews the pause; `false` resumes immediately and requests a fresh
+status. Pauses are not persisted across reboot. Manual commands, UART reception,
+and response timeouts continue normally. Queued automatic polls are removed,
+but an in-flight command is allowed to finish before the component logs
+`Status polling pause ready`. Skipped polls do not count as failures; the power
+and counter sensors keep their last states and may therefore be stale during
+the pause. An interrupted counter sweep is restarted from word `00` on resume;
+partial totals are never published.
+
+The API action above exposes this control to Home Assistant. Optionally expose
+the current flag as a template switch (its state also reflects automatic expiry):
+
+```yaml
+switch:
+  - platform: template
+    name: "Jura Status Polling Paused"
+    lambda: return id(jura).is_status_polling_paused();
+    turn_on_action:
+      - lambda: id(jura).set_status_polling_paused(true);
+    turn_off_action:
+      - lambda: id(jura).set_status_polling_paused(false);
+```
+
+This is a shared pause flag, not an exclusive command lock. Avoid concurrent
+dumps or other pause controllers; manual commands can still interfere.
 
 ## Local edit, deploy, and test loop
 
@@ -172,8 +208,20 @@ git-ignored `dumps/` directory. `diff` lists addresses whose read values differ.
 ```sh
 .venv/bin/python tools/jura_loop.py --allow-http dump --label off
 .venv/bin/python tools/jura_loop.py --allow-http dump --kind RR --start 40 --end 4F --label on
+.venv/bin/python tools/jura_loop.py --allow-http dump --pause-status --kind RR --label on
 .venv/bin/python tools/jura_loop.py --home-assistant unused diff dumps/*-re-*.txt
 ```
+
+`--pause-status` requires the updated component and the
+`set_status_polling_paused` API action above. For this installation, Home
+Assistant must expose it as `esphome.jura_coffee_machine_set_status_polling_paused`.
+The CLI waits for the drain acknowledgement before reading, renews the pause
+between reads when 20 seconds have elapsed, and resumes in `finally`, including on
+Ctrl-C or failed acquisition. A missing action, lost acknowledgement, unexpected
+resume, or cleanup failure is an error, not a fallback to unpaused dumping.
+If the CLI crashes or loses connectivity, the device resumes within 60 seconds
+of the last renewal. The flag does not eliminate late replies after timeouts;
+normal validation and retries remain enabled. Dumps without the flag are unchanged.
 
 The machine uses only the first two hex digits of an address, so `RE:0100`
 reads word `01`; `RE:` therefore covers words `00`-`FF`. `RR:xx` addresses bytes
@@ -184,3 +232,13 @@ helper checks that `origin/main` matches the local commit before and after the
 build, but cannot prove which revision was fetched if the branch changes during
 the build. An OTA restarts the ESP32; failed or interrupted updates may require
 physical recovery. The helper does not commit or push changes automatically.
+
+Local validation:
+
+```sh
+.venv/bin/python -m unittest -q tests.test_jura_loop
+.venv/bin/esphome compile tests/esphome/jura-test.yaml
+# Native fake-UART tests, including renewal and expiry (about 63s after startup):
+.venv/bin/esphome compile tests/esphome/jura-pause-test.yaml
+tests/esphome/.esphome/build/jura-pause-test/.pioenvs/jura-pause-test/program
+```

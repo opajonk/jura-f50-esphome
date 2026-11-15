@@ -71,6 +71,9 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void set_rx_timeout_us(uint32_t us) { this->rx_timeout_us_ = us; }
   void set_response_timeout_us(uint32_t us) { this->response_timeout_us_ = us; }
   void set_status_interval_ms(uint32_t ms) { this->status_interval_ms_ = ms; }
+  // Setting true also renews the 60-second pause; false resumes immediately.
+  void set_status_polling_paused(bool paused);
+  bool is_status_polling_paused() const { return this->status_polling_paused_; }
 #ifdef USE_BINARY_SENSOR
   void set_power_binary_sensor(binary_sensor::BinarySensor *sensor) { this->power_sensor_ = sensor; }
 #endif
@@ -87,6 +90,7 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void handle_decoded_(uint8_t value);
   void poll_status_();
   void handle_status_(const std::string &command, const optional<bool> &power);
+  void acknowledge_status_pause_();
 #ifdef USE_SENSOR
   void poll_counters_();
   void queue_counter_read_();
@@ -105,7 +109,12 @@ class JuraF50 : public Component, public uart::UARTDevice {
   HighFrequencyLoopRequester high_freq_;
 
   std::deque<uint8_t> tx_queue_;
-  std::deque<std::string> command_queue_;
+  enum class CommandSource { MANUAL, POWER_POLL, COUNTER_POLL };
+  struct QueuedCommand {
+    std::string command;
+    CommandSource source;
+  };
+  std::deque<QueuedCommand> command_queue_;
   Frame tx_frame_{};
   uint8_t tx_index_{4};  // 4 == no frame in flight
   uint32_t tx_last_us_{0};
@@ -118,9 +127,12 @@ class JuraF50 : public Component, public uart::UARTDevice {
   std::string line_;
   std::string pending_command_;
   bool awaiting_response_{false};
+  CommandSource pending_command_source_{CommandSource::MANUAL};
   uint32_t pending_since_us_{0};
   uint32_t status_interval_ms_{10000};
   bool status_pending_{false};
+  bool status_polling_paused_{false};
+  bool status_pause_ack_pending_{false};
   uint8_t status_failures_{0};
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *power_sensor_{nullptr};
