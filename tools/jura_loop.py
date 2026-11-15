@@ -511,15 +511,15 @@ def main():
     test.add_argument("command", nargs="?", default="TY:")
     test.add_argument("--confirm-command", action="store_true",
                       help="confirm a command other than the read-only TY: handshake")
-    test.add_argument("--attempts", type=int, choices=range(1, 4), default=1,
-                      help="number of attempts for TY: (maximum 3)")
+    test.add_argument("--attempts", type=int, choices=range(1, 6), default=5,
+                      help="number of attempts for TY: (maximum 5)")
     eeprom = sub.add_parser("dump", help="read 16-bit words 00-FF with read-only RE: (EEPROM) or RR: (RAM)")
     eeprom.add_argument("--kind", choices=READS, default="RE")
     eeprom.add_argument("--start", type=lambda value: int(value, 16), default=0)
     eeprom.add_argument("--end", type=lambda value: int(value, 16), default=0xFF)
     eeprom.add_argument("--label", default="dump", help="machine state note stored in the dump")
     eeprom.add_argument("--output", help="dump file (default: dumps/<timestamp>-<label>.txt)")
-    eeprom.add_argument("--attempts", type=int, choices=range(1, 4), default=3)
+    eeprom.add_argument("--attempts", type=int, choices=range(1, 6), default=5)
     eeprom.add_argument("--pause-status", action="store_true",
                         help="pause automatic status polls during the dump (requires the pause API action)")
     compare = sub.add_parser("diff", help="list words whose read values differ between dump files")

@@ -64,7 +64,7 @@ api:
 
 Queued commands are sent one at a time; the next command is dispatched once the previous one has been answered or timed out.
 
-Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 2s).
+Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 1s).
 
 ### Power state
 
@@ -86,7 +86,7 @@ The switch still turns on or off immediately when the Jura acknowledges
 The component polls `RR:44` through the command queue. RAM byte `0x44` was
 `01` while the machine was on (heating, rinsing, and ready) and `00` while it
 was off on an `EPSILON MASK 11`; verify it on other models. The sensor becomes
-unknown after three consecutive failed polls.
+unknown after five consecutive failed polls.
 
 ### Coffee counters
 

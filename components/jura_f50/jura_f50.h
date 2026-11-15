@@ -103,7 +103,7 @@ class JuraF50 : public Component, public uart::UARTDevice {
   // A partially received frame older than this is discarded to regain sync.
   uint32_t rx_timeout_us_{20000};
   // A queued command with no reply within this window is reported via the response-timeout callback.
-  uint32_t response_timeout_us_{2000000};
+  uint32_t response_timeout_us_{1000000};
 
   // Active only while a transmission is pending, so the 1 ms / 7 ms pacing is honoured.
   HighFrequencyLoopRequester high_freq_;

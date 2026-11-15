@@ -38,7 +38,7 @@ uint8_t decode_frame(const Frame &frame) {
 }
 
 // Consecutive failed status polls before the power state is reported as unknown.
-static constexpr uint8_t STATUS_MAX_FAILURES = 3;
+static constexpr uint8_t STATUS_MAX_FAILURES = 5;
 
 optional<bool> parse_power_status(const std::string &response) {
   if (response.size() != 7 || response.compare(0, 3, "rr:") != 0)
