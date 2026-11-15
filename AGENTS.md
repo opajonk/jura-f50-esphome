@@ -8,7 +8,8 @@ loop. User-facing details are in [README.md](README.md).
 ## Layout
 
 - `components/jura_f50/` – C++ component (`jura_f50.h/.cpp`), schema/codegen
-  (`__init__.py`), and the power `binary_sensor` platform (`binary_sensor.py`).
+  (`__init__.py`), the power `binary_sensor` platform (`binary_sensor.py`), and
+  coffee-counter `sensor` platform (`sensor.py`).
 - `tools/jura_loop.py` – CLI: `deploy`, `command`, `dump`, `diff`.
 - `tests/test_jura_loop.py` – unit tests for the CLI.
 - `tests/esphome/jura-test.yaml` – compile-only ESPHome config for the component.
@@ -21,6 +22,8 @@ loop. User-facing details are in [README.md](README.md).
 .venv/bin/python -m unittest -q tests.test_jura_loop       # CLI unit tests
 .venv/bin/esphome config tests/esphome/jura-test.yaml      # schema check
 .venv/bin/esphome compile tests/esphome/jura-test.yaml     # full ESP32 build (slow first time)
+.venv/bin/esphome compile tests/esphome/counter-test.yaml  # native counter tests, no device access
+tests/esphome/.esphome/build/jura-counter-test/.pioenvs/jura-counter-test/program
 ```
 
 Compile locally before publishing component changes.
@@ -78,9 +81,13 @@ It contains secrets: never print or commit it, back it up with mode 600 under
   (heating, rinsing, ready) and `00` while off; bytes `0x1B` and `0x54` behave
   the same. This drives the power binary sensor.
 - EEPROM holds counters, not the power state. Words `07`, `0D`, `10`, `11`, and
-  `7D` increment on power-on and `7C` on power-off. Coffee counters have not
-  been identified yet: compare dumps taken before and after a brew performed
-  by the user.
+  `7D` changed during power experiments and `7C` on power-off; their exact
+  meanings remain unverified.
+- One single coffee incremented EEPROM word `00` from 19,873 to 19,874.
+  Summing words `00`–`04` plus `06` then gave 35,690, matching the displayed
+  lifetime total. Word `04` is zero, so its inclusion is provisional.
+  `sensor.py` exposes `single_coffee` and `total_coffee`, with a shared
+  configurable `update_interval` defaulting to 120s (separate from power).
 - `IC:` does not reflect power state and changes even while off.
 - The [Q42/coffeehack](https://github.com/Q42/coffeehack) notes describe a
   different model; verify addresses before relying on them.

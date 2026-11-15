@@ -1,6 +1,7 @@
 #include "jura_f50.h"
 
 #include <cctype>
+#include <cmath>
 
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
@@ -49,20 +50,82 @@ optional<bool> parse_power_status(const std::string &response) {
   return response[3] != '0' || response[4] != '0';
 }
 
+optional<uint16_t> parse_eeprom_word(const std::string &response) {
+  if (response.size() != 7 || response.compare(0, 3, "re:") != 0)
+    return {};
+  uint16_t word = 0;
+  for (size_t i = 3; i < response.size(); i++) {
+    unsigned char c = response[i];
+    if (!isxdigit(c))
+      return {};
+    word = (word << 4) | (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
+  }
+  return word;
+}
+
 void JuraF50::setup() {
   this->tx_last_us_ = micros();
   this->rx_last_us_ = micros();
 #ifdef USE_BINARY_SENSOR
-  if (this->power_sensor_ == nullptr)
-    return;
-  this->add_on_response_callback([this](const std::string &command, const std::string &response) {
-    this->handle_status_(command, parse_power_status(response));
-  });
-  this->add_on_response_timeout_callback([this](const std::string &command) { this->handle_status_(command, {}); });
-  this->set_interval("status", this->status_interval_ms_, [this]() { this->poll_status_(); });
-  this->poll_status_();
+  if (this->power_sensor_ != nullptr) {
+    this->add_on_response_callback([this](const std::string &command, const std::string &response) {
+      this->handle_status_(command, parse_power_status(response));
+    });
+    this->add_on_response_timeout_callback([this](const std::string &command) { this->handle_status_(command, {}); });
+    this->set_interval("status", this->status_interval_ms_, [this]() { this->poll_status_(); });
+    this->poll_status_();
+  }
+#endif
+#ifdef USE_SENSOR
+  if (this->single_coffee_sensor_ != nullptr || this->total_coffee_sensor_ != nullptr) {
+    this->add_on_response_callback([this](const std::string &command, const std::string &response) {
+      this->handle_counter_(command, parse_eeprom_word(response));
+    });
+    this->add_on_response_timeout_callback([this](const std::string &command) { this->handle_counter_(command, {}); });
+    this->set_interval("counters", this->counter_interval_ms_, [this]() { this->poll_counters_(); });
+    this->poll_counters_();
+  }
 #endif
 }
+
+#ifdef USE_SENSOR
+static const char *const COUNTER_COMMANDS[] = {"RE:00", "RE:01", "RE:02", "RE:03", "RE:04", "RE:06"};
+
+void JuraF50::poll_counters_() {
+  if (this->counter_pending_)
+    return;
+  this->counter_pending_ = true;
+  this->counter_index_ = 0;
+  this->counter_total_ = 0;
+  this->queue_counter_read_();
+}
+
+void JuraF50::queue_counter_read_() { this->queue_command(COUNTER_COMMANDS[this->counter_index_]); }
+
+void JuraF50::handle_counter_(const std::string &command, const optional<uint16_t> &word) {
+  if (!this->counter_pending_ || command != COUNTER_COMMANDS[this->counter_index_])
+    return;
+  if (!word.has_value()) {
+    ESP_LOGW(TAG, "Coffee counter read failed for %s", command.c_str());
+    if (this->counter_index_ == 0 && this->single_coffee_sensor_ != nullptr)
+      this->single_coffee_sensor_->publish_state(NAN);
+    if (this->total_coffee_sensor_ != nullptr)
+      this->total_coffee_sensor_->publish_state(NAN);
+    this->counter_pending_ = false;
+    return;
+  }
+  if (this->counter_index_ == 0 && this->single_coffee_sensor_ != nullptr)
+    this->single_coffee_sensor_->publish_state(*word);
+  this->counter_total_ += *word;
+  if (this->total_coffee_sensor_ != nullptr && ++this->counter_index_ < sizeof(COUNTER_COMMANDS) / sizeof(*COUNTER_COMMANDS)) {
+    this->queue_counter_read_();
+    return;
+  }
+  if (this->total_coffee_sensor_ != nullptr)
+    this->total_coffee_sensor_->publish_state(this->counter_total_);
+  this->counter_pending_ = false;
+}
+#endif
 
 void JuraF50::poll_status_() {
   if (this->status_pending_)
@@ -97,6 +160,13 @@ void JuraF50::dump_config() {
   if (this->power_sensor_ != nullptr) {
     LOG_BINARY_SENSOR("  ", "Power", this->power_sensor_);
     ESP_LOGCONFIG(TAG, "  Status interval: %u ms", (unsigned) this->status_interval_ms_);
+  }
+#endif
+#ifdef USE_SENSOR
+  if (this->single_coffee_sensor_ != nullptr || this->total_coffee_sensor_ != nullptr) {
+    LOG_SENSOR("  ", "Single coffee counter", this->single_coffee_sensor_);
+    LOG_SENSOR("  ", "Total coffee counter", this->total_coffee_sensor_);
+    ESP_LOGCONFIG(TAG, "  Counter interval: %u ms", (unsigned) this->counter_interval_ms_);
   }
 #endif
 }

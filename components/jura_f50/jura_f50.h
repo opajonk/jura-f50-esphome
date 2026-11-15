@@ -15,6 +15,9 @@
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 namespace esphome {
 namespace jura_f50 {
@@ -32,6 +35,7 @@ uint8_t decode_frame(const Frame &frame);
 static const char *const POWER_STATUS_COMMAND = "RR:44";
 // Returns the power state encoded in a "rr:XXYY" reply, or nullopt if the reply is malformed.
 optional<bool> parse_power_status(const std::string &response);
+optional<uint16_t> parse_eeprom_word(const std::string &response);
 
 class JuraF50 : public Component, public uart::UARTDevice {
  public:
@@ -70,6 +74,11 @@ class JuraF50 : public Component, public uart::UARTDevice {
 #ifdef USE_BINARY_SENSOR
   void set_power_binary_sensor(binary_sensor::BinarySensor *sensor) { this->power_sensor_ = sensor; }
 #endif
+#ifdef USE_SENSOR
+  void set_single_coffee_sensor(sensor::Sensor *sensor) { this->single_coffee_sensor_ = sensor; }
+  void set_total_coffee_sensor(sensor::Sensor *sensor) { this->total_coffee_sensor_ = sensor; }
+  void set_counter_interval_ms(uint32_t ms) { this->counter_interval_ms_ = ms; }
+#endif
 
  protected:
   void process_rx_();
@@ -78,6 +87,11 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void handle_decoded_(uint8_t value);
   void poll_status_();
   void handle_status_(const std::string &command, const optional<bool> &power);
+#ifdef USE_SENSOR
+  void poll_counters_();
+  void queue_counter_read_();
+  void handle_counter_(const std::string &command, const optional<uint16_t> &word);
+#endif
 
   // Timing from the original sketch: 1 ms before each UART byte, 7 ms after a frame.
   uint32_t intra_delay_us_{1000};
@@ -110,6 +124,14 @@ class JuraF50 : public Component, public uart::UARTDevice {
   uint8_t status_failures_{0};
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *power_sensor_{nullptr};
+#endif
+#ifdef USE_SENSOR
+  sensor::Sensor *single_coffee_sensor_{nullptr};
+  sensor::Sensor *total_coffee_sensor_{nullptr};
+  uint32_t counter_interval_ms_{120000};
+  bool counter_pending_{false};
+  uint8_t counter_index_{0};
+  uint32_t counter_total_{0};
 #endif
   CallbackManager<void(uint8_t)> byte_callbacks_;
   CallbackManager<void(const std::string &)> line_callbacks_;

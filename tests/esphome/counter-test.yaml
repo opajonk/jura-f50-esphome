@@ -1,0 +1,34 @@
+# Native tests: compile, then run .esphome/build/jura-counter-test/.pioenvs/jura-counter-test/program.
+# Exits before UART setup; never connects to a machine.
+esphome:
+  name: jura-counter-test
+  includes:
+    - counter_test.h
+  on_boot:
+    priority: 800
+    then:
+      - lambda: |-
+          run_counter_tests();
+          std::exit(0);
+
+host:
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [jura_f50]
+
+uart:
+  port: /dev/null
+  baud_rate: 9600
+
+jura_f50:
+  id: jura
+
+sensor:
+  - platform: jura_f50
+    total_coffee:
+      name: Total coffee

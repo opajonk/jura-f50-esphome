@@ -82,6 +82,31 @@ The component polls `RR:44` through the command queue. RAM byte `0x44` was
 was off on an `EPSILON MASK 11`; verify it on other models. The sensor becomes
 unknown after three consecutive failed polls.
 
+### Coffee counters
+
+```yaml
+sensor:
+  - platform: jura_f50
+    single_coffee:
+      name: "Single Coffee Counter"
+    total_coffee:
+      name: "Total Coffee Counter"
+    update_interval: 120s  # default; independent of the power sensor interval
+```
+
+Either sensor can be omitted. Counters are read at startup and then at the
+configured interval, through the existing command queue. `single_coffee` reads
+EEPROM word `00`. `total_coffee` sums words `00`–`04` and `06`, excluding `05`.
+On the tested `EPSILON MASK 11`, one single coffee incremented word `00` and the
+sum from 35,689 to 35,690, matching the machine's displayed lifetime total.
+Other product mappings, including whether zero-valued word `04` belongs in the
+sum, remain provisional; verify them on other machines.
+
+A failed or malformed read reports the affected sensor as unknown and retries
+at the next polling interval. A total is published only after all six reads
+succeed; the reads are sequential, not an atomic snapshot during brewing.
+Both sensors use `total_increasing` state class for Home Assistant statistics.
+
 ## Local edit, deploy, and test loop
 
 ### Dev container
