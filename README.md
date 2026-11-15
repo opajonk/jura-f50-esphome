@@ -67,8 +67,15 @@ binary_sensor:
   - platform: jura_f50
     power:
       name: "Coffeemaker Powered"
+      # Optional: keep the power switch above in sync with the polled state,
+      # e.g. when the machine is switched on or off at its own buttons.
+      on_state:
+        - lambda: id(coffee_power).publish_state(x);
     update_interval: 10s  # default
 ```
+
+The switch still turns on or off immediately when the Jura acknowledges
+`AN:01`/`AN:02` with `ok:`; later polls then keep it in sync.
 
 The component polls `RR:44` through the command queue. RAM byte `0x44` was
 `01` while the machine was on (heating, rinsing, and ready) and `00` while it
