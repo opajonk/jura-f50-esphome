@@ -33,8 +33,12 @@ class ResponseTests(unittest.TestCase):
 
     def test_rejects_competing_command_timeout_and_bad_response(self):
         tracker = ResponseTracker("TY:")
+        self.assertIsNone(tracker.line("TX command: RR:44"))
+        self.assertIsNone(tracker.line("RX line: rr:0121"))
+        tracker.line("TX command: TY:")
         with self.assertRaises(LoopError):
-            tracker.line("TX command: AN:01")
+            tracker.line("TX command: RR:44")
+        tracker = ResponseTracker("TY:")
         tracker.line("TX command: TY:")
         with self.assertRaises(LoopError):
             tracker.line("No response to 'TY:' within timeout")

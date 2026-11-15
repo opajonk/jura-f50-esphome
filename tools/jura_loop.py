@@ -34,6 +34,10 @@ class BadResponse(LoopError):
     pass
 
 
+class AmbiguousResponse(LoopError):
+    pass
+
+
 class ConfigLoader(yaml.SafeLoader):
     pass
 
@@ -217,9 +221,11 @@ class ResponseTracker:
         line = ANSI.sub("", line)
         if "TX command: " in line:
             sent = line.split("TX command: ", 1)[1].strip()
-            if sent != self.command or self.sent:
-                raise LoopError("Another command was transmitted during the test; response is ambiguous.")
-            self.sent = True
+            if self.sent:
+                raise AmbiguousResponse("Another command was transmitted during the test; response is ambiguous.")
+            # Earlier traffic such as the component's status poll is answered before ours is sent.
+            if sent == self.command:
+                self.sent = True
         if self.sent and "No response to " in line:
             raise CommandTimeout("Jura command timed out.")
         if self.sent and "RX line: " in line:
@@ -371,7 +377,7 @@ async def read_words(stream, start, end, attempts, progress=None, kind="RE"):
             try:
                 words[address] = parse_word(await stream.query(command), kind)
                 break
-            except (CommandTimeout, BadResponse):
+            except (CommandTimeout, BadResponse, AmbiguousResponse):
                 # Let a late reply to the timed-out read pass before the next request.
                 await asyncio.sleep(1)
                 await stream.lines(timeout=0.5)
