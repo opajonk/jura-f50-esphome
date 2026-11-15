@@ -18,6 +18,9 @@
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
+#ifdef USE_TEXT_SENSOR
+#include "esphome/components/text_sensor/text_sensor.h"
+#endif
 
 namespace esphome {
 namespace jura_f50 {
@@ -33,9 +36,12 @@ uint8_t decode_frame(const Frame &frame);
 // RR:44 reads RAM bytes 0x44/0x45; byte 0x44 is 01 while the machine is on and 00 while it is off
 // (observed on an EPSILON MASK 11 across off, heating, rinsing and ready states).
 static const char *const POWER_STATUS_COMMAND = "RR:44";
+// RAM bytes 0xBC/0xBD hold binary hours/minutes on the tested EPSILON MASK 11.
+static const char *const CLOCK_STATUS_COMMAND = "RR:BC";
 // Returns the power state encoded in a "rr:XXYY" reply, or nullopt if the reply is malformed.
 optional<bool> parse_power_status(const std::string &response);
 optional<uint16_t> parse_eeprom_word(const std::string &response);
+optional<std::string> parse_clock_status(const std::string &response);
 
 class JuraF50 : public Component, public uart::UARTDevice {
  public:
@@ -82,6 +88,10 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void set_total_coffee_sensor(sensor::Sensor *sensor) { this->total_coffee_sensor_ = sensor; }
   void set_counter_interval_ms(uint32_t ms) { this->counter_interval_ms_ = ms; }
 #endif
+#ifdef USE_TEXT_SENSOR
+  void set_clock_text_sensor(text_sensor::TextSensor *sensor) { this->clock_sensor_ = sensor; }
+  void set_clock_interval_ms(uint32_t ms) { this->clock_interval_ms_ = ms; }
+#endif
 
  protected:
   void process_rx_();
@@ -96,6 +106,10 @@ class JuraF50 : public Component, public uart::UARTDevice {
   void queue_counter_read_();
   void handle_counter_(const std::string &command, const optional<uint16_t> &word);
 #endif
+#ifdef USE_TEXT_SENSOR
+  void poll_clock_();
+  void handle_clock_(const optional<std::string> &clock);
+#endif
 
   // Timing from the original sketch: 1 ms before each UART byte, 7 ms after a frame.
   uint32_t intra_delay_us_{1000};
@@ -109,7 +123,7 @@ class JuraF50 : public Component, public uart::UARTDevice {
   HighFrequencyLoopRequester high_freq_;
 
   std::deque<uint8_t> tx_queue_;
-  enum class CommandSource { MANUAL, POWER_POLL, COUNTER_POLL };
+  enum class CommandSource { MANUAL, POWER_POLL, COUNTER_POLL, CLOCK_POLL };
   struct QueuedCommand {
     std::string command;
     CommandSource source;
@@ -144,6 +158,11 @@ class JuraF50 : public Component, public uart::UARTDevice {
   bool counter_pending_{false};
   uint8_t counter_index_{0};
   uint32_t counter_total_{0};
+#endif
+#ifdef USE_TEXT_SENSOR
+  text_sensor::TextSensor *clock_sensor_{nullptr};
+  uint32_t clock_interval_ms_{30000};
+  bool clock_pending_{false};
 #endif
   CallbackManager<void(uint8_t)> byte_callbacks_;
   CallbackManager<void(const std::string &)> line_callbacks_;

@@ -68,3 +68,8 @@ sensor:
     total_coffee:
       name: Total coffee counter
     update_interval: 120s
+
+text_sensor:
+  - platform: jura_f50
+    clock:
+      name: Clock

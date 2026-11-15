@@ -50,8 +50,8 @@ optional<bool> parse_power_status(const std::string &response) {
   return response[3] != '0' || response[4] != '0';
 }
 
-optional<uint16_t> parse_eeprom_word(const std::string &response) {
-  if (response.size() != 7 || response.compare(0, 3, "re:") != 0)
+static optional<uint16_t> parse_word(const std::string &response, const char *prefix) {
+  if (response.size() != 7 || response.compare(0, 3, prefix) != 0)
     return {};
   uint16_t word = 0;
   for (size_t i = 3; i < response.size(); i++) {
@@ -61,6 +61,22 @@ optional<uint16_t> parse_eeprom_word(const std::string &response) {
     word = (word << 4) | (isdigit(c) ? c - '0' : tolower(c) - 'a' + 10);
   }
   return word;
+}
+
+optional<uint16_t> parse_eeprom_word(const std::string &response) { return parse_word(response, "re:"); }
+
+optional<std::string> parse_clock_status(const std::string &response) {
+  auto word = parse_word(response, "rr:");
+  if (!word.has_value())
+    return {};
+  unsigned hours = *word >> 8;
+  unsigned minutes = *word & 0xFF;
+  if (hours > 23 || minutes > 59)
+    return {};
+  // Unset clocks and midnight both encode as zero.
+  if (*word == 0)
+    return std::string("--:--");
+  return str_sprintf("%02u:%02u", hours, minutes);
 }
 
 void JuraF50::setup() {
@@ -90,7 +106,41 @@ void JuraF50::setup() {
     this->poll_counters_();
   }
 #endif
+#ifdef USE_TEXT_SENSOR
+  if (this->clock_sensor_ != nullptr) {
+    this->add_on_response_callback([this](const std::string &command, const std::string &response) {
+      if (this->pending_command_source_ == CommandSource::CLOCK_POLL && command == CLOCK_STATUS_COMMAND)
+        this->handle_clock_(parse_clock_status(response));
+    });
+    this->add_on_response_timeout_callback([this](const std::string &command) {
+      if (this->pending_command_source_ == CommandSource::CLOCK_POLL && command == CLOCK_STATUS_COMMAND)
+        this->handle_clock_({});
+    });
+    this->set_interval("clock", this->clock_interval_ms_, [this]() { this->poll_clock_(); });
+    this->poll_clock_();
+  }
+#endif
 }
+
+#ifdef USE_TEXT_SENSOR
+void JuraF50::poll_clock_() {
+  if (this->status_polling_paused_ || this->clock_pending_)
+    return;
+  this->clock_pending_ = true;
+  this->command_queue_.push_back({CLOCK_STATUS_COMMAND, CommandSource::CLOCK_POLL});
+  this->high_freq_.start();
+}
+
+void JuraF50::handle_clock_(const optional<std::string> &clock) {
+  this->clock_pending_ = false;
+  if (clock.has_value()) {
+    this->clock_sensor_->publish_state(*clock);
+    return;
+  }
+  ESP_LOGW(TAG, "Clock status poll failed");
+  this->clock_sensor_->publish_state("unknown");
+}
+#endif
 
 #ifdef USE_SENSOR
 static const char *const COUNTER_COMMANDS[] = {"RE:00", "RE:01", "RE:02", "RE:03", "RE:04", "RE:06"};
@@ -161,6 +211,10 @@ void JuraF50::set_status_polling_paused(bool paused) {
     if (was_paused && (this->single_coffee_sensor_ != nullptr || this->total_coffee_sensor_ != nullptr))
       this->poll_counters_();
 #endif
+#ifdef USE_TEXT_SENSOR
+    if (was_paused && this->clock_sensor_ != nullptr)
+      this->poll_clock_();
+#endif
     return;
   }
   this->status_polling_paused_ = true;
@@ -172,6 +226,10 @@ void JuraF50::set_status_polling_paused(bool paused) {
 #ifdef USE_SENSOR
       if (it->source == CommandSource::COUNTER_POLL)
         this->counter_pending_ = false;
+#endif
+#ifdef USE_TEXT_SENSOR
+      if (it->source == CommandSource::CLOCK_POLL)
+        this->clock_pending_ = false;
 #endif
       it = this->command_queue_.erase(it);
     } else {
@@ -225,6 +283,12 @@ void JuraF50::dump_config() {
     LOG_SENSOR("  ", "Single coffee counter", this->single_coffee_sensor_);
     LOG_SENSOR("  ", "Total coffee counter", this->total_coffee_sensor_);
     ESP_LOGCONFIG(TAG, "  Counter interval: %u ms", (unsigned) this->counter_interval_ms_);
+  }
+#endif
+#ifdef USE_TEXT_SENSOR
+  if (this->clock_sensor_ != nullptr) {
+    LOG_TEXT_SENSOR("  ", "Clock", this->clock_sensor_);
+    ESP_LOGCONFIG(TAG, "  Clock interval: %u ms", (unsigned) this->clock_interval_ms_);
   }
 #endif
 }

@@ -113,17 +113,38 @@ at the next polling interval. A total is published only after all six reads
 succeed; the reads are sequential, not an atomic snapshot during brewing.
 Both sensors use `total_increasing` state class for Home Assistant statistics.
 
+### Machine clock
+
+```yaml
+text_sensor:
+  - platform: jura_f50
+    clock:
+      name: "Coffeemaker Clock"
+    update_interval: 30s  # default; independent of power and counter polling
+```
+
+This read-only text sensor displays the machine's clock as `HH:MM` in Home
+Assistant. It reads `RR:BC` at startup and then at the configured interval.
+RAM bytes `0xBC` and `0xBD` contain binary hours and minutes on the tested
+`EPSILON MASK 11`; verify the mapping on other models. It does not synchronize
+or set the machine's clock.
+
+A zero reading displays `--:--`, matching the observed unset clock. Midnight
+(`00:00`) has the same encoding and therefore also displays `--:--`; no separate
+clock-validity flag has been identified. Malformed, out-of-range, or timed-out
+replies are logged and display `unknown`, with recovery on the next valid poll.
+
 ### Temporarily pausing status collection
 
-`id(jura).set_status_polling_paused(true)` pauses automatic power and coffee-counter
-polling for 60 seconds.
+`id(jura).set_status_polling_paused(true)` pauses automatic power, coffee-counter,
+and clock polling for 60 seconds.
 Calling it again renews the pause; `false` resumes immediately and requests a fresh
 status. Pauses are not persisted across reboot. Manual commands, UART reception,
 and response timeouts continue normally. Queued automatic polls are removed,
 but an in-flight command is allowed to finish before the component logs
-`Status polling pause ready`. Skipped polls do not count as failures; the power
-and counter sensors keep their last states and may therefore be stale during
-the pause. An interrupted counter sweep is restarted from word `00` on resume;
+`Status polling pause ready`. Skipped polls do not count as failures; all sensors
+keep their last states and may therefore be stale during the pause.
+An interrupted counter sweep is restarted from word `00` on resume;
 partial totals are never published.
 
 The API action above exposes this control to Home Assistant. Optionally expose
@@ -238,7 +259,7 @@ Local validation:
 ```sh
 .venv/bin/python -m unittest -q tests.test_jura_loop
 .venv/bin/esphome compile tests/esphome/jura-test.yaml
-# Native fake-UART tests, including renewal and expiry (about 63s after startup):
+# Native fake-UART tests, including clock polling and pause expiry (about 63s):
 .venv/bin/esphome compile tests/esphome/jura-pause-test.yaml
 tests/esphome/.esphome/build/jura-pause-test/.pioenvs/jura-pause-test/program
 ```

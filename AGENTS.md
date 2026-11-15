@@ -8,8 +8,9 @@ loop. User-facing details are in [README.md](README.md).
 ## Layout
 
 - `components/jura_f50/` – C++ component (`jura_f50.h/.cpp`), schema/codegen
-  (`__init__.py`), the power `binary_sensor` platform (`binary_sensor.py`), and
-  coffee-counter `sensor` platform (`sensor.py`).
+  (`__init__.py`), the power `binary_sensor` platform (`binary_sensor.py`),
+  coffee-counter `sensor` platform (`sensor.py`), and clock `text_sensor`
+  platform (`text_sensor.py`).
 - `tools/jura_loop.py` – CLI: `deploy`, `command`, `dump`, `diff`.
 - `tests/test_jura_loop.py` – unit tests for the CLI.
 - `tests/esphome/jura-test.yaml` – compile-only ESPHome config for the component.
@@ -24,6 +25,8 @@ loop. User-facing details are in [README.md](README.md).
 .venv/bin/esphome compile tests/esphome/jura-test.yaml     # full ESP32 build (slow first time)
 .venv/bin/esphome compile tests/esphome/counter-test.yaml  # native counter tests, no device access
 tests/esphome/.esphome/build/jura-counter-test/.pioenvs/jura-counter-test/program
+.venv/bin/esphome compile tests/esphome/jura-pause-test.yaml  # native clock/pause tests (~63s)
+tests/esphome/.esphome/build/jura-pause-test/.pioenvs/jura-pause-test/program
 ```
 
 Compile locally before publishing component changes.
@@ -89,5 +92,9 @@ It contains secrets: never print or commit it, back it up with mode 600 under
   `sensor.py` exposes `single_coffee` and `total_coffee`, with a shared
   configurable `update_interval` defaulting to 120s (separate from power).
 - `IC:` does not reflect power state and changes even while off.
+- `RR:BC` reads binary hours/minutes from RAM bytes `0xBC`/`0xBD`.
+  The clock text sensor polls every 30s by default. Zero displays `--:--`,
+  including at midnight; failures display `unknown`. Status pause also pauses
+  clock polling and resumes it with a fresh read.
 - The [Q42/coffeehack](https://github.com/Q42/coffeehack) notes describe a
   different model; verify addresses before relying on them.

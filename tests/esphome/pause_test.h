@@ -27,11 +27,13 @@ class PauseProbe : public esphome::jura_f50::JuraF50 {
  public:
   using JuraF50::poll_status_;
   using JuraF50::poll_counters_;
+  using JuraF50::poll_clock_;
   bool acknowledgement_pending() const { return this->status_pause_ack_pending_; }
   bool poll_pending() const { return this->status_pending_; }
   size_t queued() const { return this->command_queue_.size(); }
   uint8_t failures() const { return this->status_failures_; }
   bool counter_pending() const { return this->counter_pending_; }
+  bool clock_pending() const { return this->clock_pending_; }
   std::string next_command() const { return this->command_queue_.front().command; }
   void dispatch() { this->process_tx_(); }
   void finish_transmission() {
@@ -47,6 +49,16 @@ class PauseProbe : public esphome::jura_f50::JuraF50 {
 };
 
 static PauseProbe expiry_probe;
+static PauseProbe clock_interval_probe;
+static uint32_t clock_interval_started;
+static bool clock_interval_verified{false};
+
+inline void finish_clock_interval_poll() {
+  clock_interval_probe.dispatch();
+  clock_interval_probe.finish_transmission();
+  clock_interval_probe.respond("rr:140F");
+  clock_interval_probe.loop();
+}
 
 inline void run_pause_tests(esphome::jura_f50::JuraF50 *configured_component) {
   static FakeUART uart;
@@ -54,6 +66,7 @@ inline void run_pause_tests(esphome::jura_f50::JuraF50 *configured_component) {
   configured_component->set_power_binary_sensor(nullptr);
   configured_component->set_single_coffee_sensor(nullptr);
   configured_component->set_total_coffee_sensor(nullptr);
+  configured_component->set_clock_text_sensor(nullptr);
   static esphome::binary_sensor::BinarySensor sensor;
   static PauseProbe probe;
   probe.set_uart_parent(&uart);
@@ -124,5 +137,66 @@ inline void run_pause_tests(esphome::jura_f50::JuraF50 *configured_component) {
   pause_check(counters.next_command() == "RE:00", "an interrupted sweep must restart from word 00");
   counters.set_status_polling_paused(true);
   counters.loop();
+  using esphome::jura_f50::parse_clock_status;
+  pause_check(parse_clock_status("rr:1338").value() == "19:56", "clock bytes must be binary, not BCD");
+  pause_check(parse_clock_status("rr:140f").value() == "20:15", "clock must accept lowercase hex");
+  pause_check(parse_clock_status("rr:173B").value() == "23:59", "clock must support the end of the day");
+  pause_check(parse_clock_status("rr:0000").value() == "--:--", "zero must display as an unset clock");
+  pause_check(parse_clock_status("rr:0001").value() == "00:01", "clock must zero-pad midnight minutes");
+  for (const auto *bad : {"re:1410", "rr:141", "rr:14100", "rr:14GG", "rr:1800", "rr:003C"})
+    pause_check(!parse_clock_status(bad).has_value(), "clock must reject malformed or out-of-range responses");
+  static esphome::text_sensor::TextSensor clock;
+  static PauseProbe clock_probe;
+  clock_probe.set_uart_parent(&uart);
+  clock_probe.set_clock_text_sensor(&clock);
+  clock.publish_state("19:00");
+  clock_probe.setup();
+  clock_probe.poll_clock_();
+  pause_check(clock_probe.queued() == 1 && clock_probe.clock_pending(), "clock must poll at startup without duplicates");
+  clock_probe.queue_command("RR:BC");
+  clock_probe.set_status_polling_paused(true);
+  clock_probe.poll_clock_();
+  pause_check(clock_probe.queued() == 1 && !clock_probe.clock_pending(), "pause must cancel only automatic clock reads");
+  pause_check(clock.state == "19:00", "skipped clock polls must preserve the displayed time");
+  clock_probe.dispatch();
+  clock_probe.finish_transmission();
+  clock_probe.respond("rr:1410");
+  pause_check(clock.state == "19:00", "manual reads must not update the clock poll");
+  clock_probe.set_status_polling_paused(false);
+  pause_check(clock_probe.next_command() == "RR:BC", "resume must request a fresh clock");
+  clock_probe.dispatch();
+  clock_probe.finish_transmission();
+  clock_probe.respond("rr:1410");
+  pause_check(clock.state == "20:16" && !clock_probe.clock_pending(), "clock response must publish HH:MM");
+  clock_probe.poll_clock_();
+  clock_probe.dispatch();
+  clock_probe.set_status_polling_paused(true);
+  pause_check(clock_probe.clock_pending() && clock_probe.acknowledgement_pending(), "pause must drain an active clock poll");
+  clock_probe.finish_transmission();
+  clock_probe.respond("rr:0000");
+  pause_check(clock.state == "--:--" && !clock_probe.acknowledgement_pending(), "active clock replies must finish while paused");
+  clock_probe.set_status_polling_paused(false);
+  clock_probe.dispatch();
+  clock_probe.finish_transmission();
+  clock_probe.respond("rr:1800");
+  pause_check(clock.state == "unknown" && !clock_probe.clock_pending(), "invalid clock replies must report failure");
+  clock_probe.poll_clock_();
+  clock_probe.dispatch();
+  clock_probe.finish_transmission();
+  clock_probe.respond("rr:1411");
+  pause_check(clock.state == "20:17", "clock must recover from a failed poll");
+  clock_probe.poll_clock_();
+  clock_probe.dispatch();
+  clock_probe.finish_transmission();
+  clock_probe.set_response_timeout_us(0);
+  clock_probe.loop();
+  pause_check(clock.state == "unknown" && !clock_probe.clock_pending(), "clock timeouts must clear the pending poll");
+  clock_probe.set_status_polling_paused(true);
+  clock_probe.loop();
+  static esphome::text_sensor::TextSensor interval_clock;
+  clock_interval_probe.set_uart_parent(&uart);
+  clock_interval_probe.set_clock_text_sensor(&interval_clock);
+  clock_interval_probe.setup();
+  finish_clock_interval_poll();
   expiry_probe.set_status_polling_paused(true);
 }

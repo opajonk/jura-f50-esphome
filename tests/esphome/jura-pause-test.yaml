@@ -4,18 +4,33 @@ esphome:
   includes:
     - pause_test.h
   on_boot:
-    priority: 700
-    then:
-      - lambda: run_pause_tests(id(jura));
-      - delay: 1s
-      - lambda: expiry_probe.set_status_polling_paused(true);
-      - delay: 59500ms
-      - lambda: pause_check(expiry_probe.is_status_polling_paused(), "renewal must extend the lease");
-      - delay: 2s
-      - lambda: |-
-          pause_check(!expiry_probe.is_status_polling_paused(), "pause must expire");
-          ESP_LOGI("pause_test", "All polling pause tests passed");
-          std::exit(0);
+    - priority: 700
+      then:
+        - lambda: run_pause_tests(id(jura));
+        - delay: 1s
+        - lambda: expiry_probe.set_status_polling_paused(true);
+        - delay: 59500ms
+        - lambda: pause_check(expiry_probe.is_status_polling_paused(), "renewal must extend the lease");
+        - delay: 2s
+        - lambda: |-
+            pause_check(!expiry_probe.is_status_polling_paused(), "pause must expire");
+            pause_check(clock_interval_verified, "default clock polling interval must be verified");
+            ESP_LOGI("pause_test", "All clock and polling pause tests passed");
+            std::exit(0);
+    - priority: 690
+      then:
+        - wait_until:
+            lambda: return clock_interval_probe.clock_pending();
+        - lambda: |-
+            finish_clock_interval_poll();
+            clock_interval_started = millis();
+        - wait_until:
+            lambda: return clock_interval_probe.clock_pending();
+        - lambda: |-
+            uint32_t elapsed = millis() - clock_interval_started;
+            pause_check(elapsed >= 29500 && elapsed <= 30500, "default clock poll interval must be 30 seconds");
+            finish_clock_interval_poll();
+            clock_interval_verified = true;
 
 host:
 
@@ -46,3 +61,8 @@ sensor:
       name: Single coffee counter
     total_coffee:
       name: Total coffee counter
+
+text_sensor:
+  - platform: jura_f50
+    clock:
+      name: Clock
