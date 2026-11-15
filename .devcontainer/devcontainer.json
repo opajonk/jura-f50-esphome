@@ -19,7 +19,8 @@
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ESPHome.esphome-vscode"
+        "ESPHome.esphome-vscode",
+        "ms-vscode.cpptools-extension-pack"
       ],
       "settings": {
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
