@@ -84,6 +84,28 @@ unknown after three consecutive failed polls.
 
 ## Local edit, deploy, and test loop
 
+### Dev container
+
+Open the repository in VS Code and choose **Reopen in Container** (or create a
+Codespace). The container provides Python 3.13, the GitHub CLI, the ESPHome
+extension, and a `.venv` with `requirements-dev.txt` (including the ESPHome
+version used by the Builder app); the unit tests run once after creation.
+Each start prints what is still missing for the live loop.
+
+- The host directory `~/.config/jura-loop` is created if needed and mounted
+  into the container, so the Home Assistant token stays on the host. Linux and
+  macOS hosts are supported as-is; on Windows, run the container from WSL.
+- Export `JURA_HOME_ASSISTANT` on the host before opening the container to
+  forward it; otherwise pass `--home-assistant`.
+- Run `gh auth login && gh auth setup-git` inside the container to push.
+- The PlatformIO toolchain cache is kept in a Docker volume, so only the first
+  `.venv/bin/esphome compile tests/esphome/jura-test.yaml` downloads it.
+
+The live loop needs network access to Home Assistant; a Codespace normally
+cannot reach a home LAN, but can still edit, test, and compile.
+
+### Manual setup
+
 The helper below targets the `jura-coffee-machine` ESPHome Builder configuration
 on Home Assistant. It requires the device's `send_command` API action and DEBUG
 logs, and the configuration must fetch this repository with `refresh: 0s`.

@@ -439,8 +439,9 @@ async def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--home-assistant", default=os.environ.get("JURA_HOME_ASSISTANT"),
-                        required="JURA_HOME_ASSISTANT" not in os.environ)
+    # The dev container forwards JURA_HOME_ASSISTANT as an empty string when the host leaves it unset.
+    parser.add_argument("--home-assistant", default=os.environ.get("JURA_HOME_ASSISTANT") or None,
+                        required=not os.environ.get("JURA_HOME_ASSISTANT"))
     parser.add_argument("--token-file", default="~/.config/jura-loop/home-assistant-token")
     parser.add_argument("--allow-http", action="store_true", help="accept plaintext LAN credential exposure")
     sub = parser.add_subparsers(dest="action", required=True)

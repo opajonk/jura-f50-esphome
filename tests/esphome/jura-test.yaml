@@ -1,0 +1,42 @@
+# Compile-only configuration for checking the component locally:
+#   .venv/bin/esphome compile tests/esphome/jura-test.yaml
+esphome:
+  name: jura-test
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [jura_f50]
+
+uart:
+  id: jura_uart
+  tx_pin: GPIO26
+  rx_pin: GPIO27
+  baud_rate: 9600
+
+jura_f50:
+  id: jura
+
+switch:
+  - platform: template
+    id: coffee_power
+    name: Power
+    turn_on_action:
+      - lambda: id(jura).queue_command("AN:01");
+    turn_off_action:
+      - lambda: id(jura).queue_command("AN:02");
+
+binary_sensor:
+  - platform: jura_f50
+    power:
+      name: Power state
+      on_state:
+        - lambda: id(coffee_power).publish_state(x);

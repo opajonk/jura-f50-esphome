@@ -1,2 +1,4 @@
 aiohttp>=3.10,<4
 PyYAML>=6,<7
+# Matches the ESPHome version of the Home Assistant ESPHome Builder app.
+esphome==2026.10.2

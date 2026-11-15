@@ -1,0 +1,29 @@
+{
+  "name": "jura-f50-esphome",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  // Keeps the Home Assistant token on the host; never inside the repository.
+  "initializeCommand": "mkdir -p \"$HOME/.config/jura-loop\" && chmod 700 \"$HOME/.config/jura-loop\"",
+  "mounts": [
+    "source=${localEnv:HOME}/.config/jura-loop,target=/home/vscode/.config/jura-loop,type=bind",
+    "source=jura-f50-esphome-platformio,target=/home/vscode/.platformio,type=volume"
+  ],
+  "remoteEnv": {
+    "JURA_HOME_ASSISTANT": "${localEnv:JURA_HOME_ASSISTANT}"
+  },
+  "postCreateCommand": ".devcontainer/post-create.sh",
+  "postStartCommand": ".devcontainer/post-start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ESPHome.esphome-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
+      }
+    }
+  }
+}
