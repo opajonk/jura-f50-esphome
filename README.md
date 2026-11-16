@@ -236,6 +236,69 @@ switch:
 This is a shared pause flag, not an exclusive command lock. Avoid concurrent
 dumps or other pause controllers; manual commands can still interfere.
 
+## F50 Home Assistant research backlog
+
+Internet references checked on 2026-11-16. Pick **one ID per session**; start
+with R01. These are research leads, not supported F50 entities or permission to
+operate the machine. Existing power, clock, and single/total coffee sensors are
+described above. The target reports `ty:EPSILON MASK 11`.
+
+**Evidence:** "other-model implementation" means source code actually polls or
+parses the command, not that its interpretation is correct on the F50.
+Archived register tables are explicitly unverified. In particular, the F7
+and newer machines have different product layouts and even disagree about which
+`IC:` byte contains a flag. Never copy their bit positions or addresses as facts.
+
+| ID / priority | Home Assistant use | Command / evidence | First bounded investigation |
+| --- | --- | --- | --- |
+| **R01 / high** | Tray / grounds-container present binary sensor | `IC:`. [F7 implementation][research-f7] parses tray presence; [Q42 notes][research-q42] record an input change when the grounds container is removed. Exact F50 bit unknown. | Record repeated samples with the tray/container inserted, removed, then reinserted, with the owner operating it while idle. Require a reproducible bit change; do not confuse presence with "grounds full". |
+| **R02 / high** | Water-tank present / fill-water notification | `IC:`. [F7][research-f7] and [legacy parser][research-legacy-code] interpret a tank flag, but use different payload bytes. | Compare tank installed, removed, and reinstalled. Separately test a naturally low-water condition: removal alone cannot establish that the bit means "empty". Never run a pump without water. |
+| **R03 / high** | Ready, heating, brewing, or blocked status; coffee-finished automation | `IC:` and `RR:xx`. [Legacy parser][research-legacy-code] derives ready/busy states from inputs. F50 `RR:44` is already known to mean power, **not readiness**. | Capture idle baselines, then time-series samples during one owner-approved normal startup or coffee. Repeat to distinguish persistent flags from transient activity. Use physical/display observations as ground truth, not `ok:` or an incrementing counter alone. |
+| **R04 / high** | Grounds-bin count / empty-bin reminder | `RE:00`-`RE:15` initially. [Archived map][research-registers] labels its 15th field as grounds level; the equivalent sequential-word candidate would be `RE:0E`, **not a verified F50 address**. | Compare dumps before/after one normal coffee and an owner-performed emptying/reinsertion. Verify whether a candidate resets and whether it counts pucks, cycles, or drinks. |
+| **R05 / high** | Cleaning/descaling totals and maintenance history | `RE:xx`. [F7 parser][research-f7] labels its 9th/10th fields cleanings/descalings: `RE:08`/`RE:09` are candidates only if the layouts align. | Start with saved EEPROM data and the owner's maintenance-menu totals. Confirm a change at the next genuinely needed maintenance cycle; do not launch cleaning/descaling just to obtain a sample. |
+| **R06 / medium** | Cleaning, descaling, or filter-change due notification | `RE:xx` / `IC:`. [Archived map][research-registers] suggests "since maintenance" fields (including fields 14/16, possible words `0D`/`0F`). Its meanings are unverified, and it establishes no F50 due flag or threshold. | Compare normal readings with the actual maintenance display over time; include words `0D`, `10`, and `11`, which changed in earlier F50 experiments. Distinguish lifetime totals, resettable counters, and real warning flags. Do not invent a percentage or fixed threshold. |
+| **R07 / medium** | Two-cup / other product counters; verify total-coffee formula | `RE:01`-`RE:06`, extending the existing `RE:00` single-coffee sensor. [F7 parser][research-f7] exposes per-product counters, but its product names do not match this F50. | Have the owner make one two-cup serving when wanted, diff before/after, and establish whether counts mean servings or cups. Keep the existing total formula unchanged until evidence warrants changing it; word `04` remains provisional. |
+| **R08 / medium** | Ten-character notification text from HA | `DA:<text>` is **F50-confirmed**; [J6 notes][research-j6] also document display writing. | Test supported characters, shorter strings/padding, persistence, and normal display recovery with approval. Decide how notifications avoid hiding machine warnings. Do not assume a display-read counterpart: five full marker dumps found no reproducible buffer in `RR:00`-`RR:FF`. |
+| **R09 / medium** | Hot-water / steam-preparation controls | `FA:08` is hot water in [Q42 notes][research-q42] but a different beverage on J6. F50 accepts it with unknown effect; `FA:09` is owner-confirmed steam preparation. | First inspect the F50's normal physical hot-water/steam workflow with the owner. Any command test requires explicit approval and supervision; acceptance does not prove dispensing, readiness, or valve control. |
+| **R10 / low** | Menu navigation / settings controls | `FA:0C` is the F50 dial push button. [J6 notes][research-j6] describe other menu keys, but F50 tests already rejected `FA:0D`/`FA:0E` as dial rotation. `FA:10`-`FA:14` remain unknown despite `ok:`. | Choose one explicitly approved code and one known menu state, record its visible effect, then stop. These can trigger maintenance, not just navigation (`FA:15` cleans). Do not bulk-scan commands or expose unknown keys as normal HA controls. |
+| **R11 / low** | Firmware/loader information diagnostic entity | `TY:` already works; [J6 notes][research-j6] report `TL: LOADER V3.0`. F50 `TL:` support and effects are unverified. | After approval, make one `TL:` query and record its exact reply or timeout. This is informational only, not a reason to enter a loader/test mode. |
+| **R12 / deferred** | Rich alerts, maintenance percentages, brew progress, recipe options, panel lock | [Modern dongle protocol][research-at] documents `@TF:`, `@TG:43`, `@TG:C0`, `@TR:32,NN`, progress `@TV:`, recipes `@TP:`, and lock `@TS:` on newer machines. **No evidence this F50 supports that protocol.** | Research F50/EPSILON compatibility first. These commands need encrypted framing and a dongle handshake; our clear-text queue/CLI does not implement them. Do not send them as ordinary strings or replace the working component. Treat writes/locking as a separate, opt-in project only if compatibility is established. |
+
+### Research boundaries and handoff
+
+- `TY:`, `RE:`, `RR:`, and `IC:` are the current read-only allowlist.
+  Other-model claims do not extend it: get approval before any other command.
+  Even a known `FA:` mapping must not be sent without approval for that experiment.
+- Keep `WE:` (EEPROM writes), `AN:0A` (erase), test/loader modes, and direct
+  `FN:` actuator control out of this backlog. They are unnecessary for normal HA
+  sensors and can change persistent state or operate hardware outside normal cycles.
+- The archived map also mentions `TT:` and `RU:`, but explicitly marks its
+  interpretations unverified and supplies no F50 results. Park these until a
+  stronger source establishes syntax and safety; do not assume temperature or
+  runtime readings exist.
+- For each ID, record exact commands/replies, observed machine/display state,
+  timestamped dump names, repeatability, rejected hypotheses, and the next step.
+  Update its status here and the concise findings in [AGENTS.md](AGENTS.md);
+  mark an entity supported only after F50 verification and focused tests.
+  Status of R01-R12: **not started**, except the prior observations noted above.
+- Use [the live-loop setup](#local-edit-deploy-and-test-loop) and
+  `dump --pause-status` for comparisons. Dumps remain sequential snapshots:
+  neighbouring `RR:` reads overlap and can disagree when live bytes change.
+  A failed or malformed read is missing evidence, not a zero or a state transition.
+- Existing dumps are git-ignored and will not come with a fresh clone. Preserve
+  conclusions and essential sample values in these docs; collect fresh baselines
+  if raw captures are unavailable. A clean clone still needs LAN access, local
+  credentials, and the Builder configuration before live work.
+
+Sources (external model claims are not F50 verification):
+
+[research-f7]: https://github.com/alco28/Jura-F7-ESPHOME/blob/main/custom_components/jura_coffee/jura_coffee.cpp
+[research-legacy-code]: https://github.com/tiaanv/jura/blob/main/components/jura/jura.h
+[research-registers]: https://github.com/tiaanv/jura/blob/main/legacy/docs/uart-register-map.md
+[research-q42]: https://github.com/Q42/coffeehack/blob/master/reverse-engineering/commands.txt
+[research-j6]: https://github.com/ryanalden/esphome-jura-component/blob/master/README.md
+[research-at]: https://github.com/harryzz/jura-uart-esphome/blob/main/components/jura_link/AT-PROTOCOL.md
+
 ## Local edit, deploy, and test loop
 
 ### Dev container
@@ -290,7 +353,8 @@ do not protect against other processes using the same operating-system account.
    Avoid other concurrent commands while testing. If it times out,
    `command --attempts 3` allows up to three attempts; a late response cannot
    be distinguished from a response to a retry. To send a different command,
-   explicitly provide it and `--confirm-command`; commands may operate the machine.
+   explicitly provide it with `--confirm-command --attempts 1`; non-`TY:`
+   commands reject the default retry count and may operate the machine.
 
 ### Reading EEPROM and RAM
 
