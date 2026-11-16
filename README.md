@@ -120,6 +120,20 @@ To identify an unknown code, send it with the machine on and idle, then watch th
 display and the `RR:44` power byte. Diff `RE:` dumps taken before and after to
 see which maintenance counters change.
 
+#### Display text on the F50
+
+`DA:<text>` writes text to the display and replies `ok:`. The owner confirmed
+`DA:1234567890` displays all ten characters and reported a ten-character maximum.
+`DA:ABCDEFGHIJ` was also confirmed visible during RAM testing.
+
+RAM dumps with automatic status polls paused were taken for `1234567890`,
+`ABCDEFGHIJ`, and `AAAAAAAAAA` / `BBBBBBBBBB` / `AAAAAAAAAA`. No plain-text
+marker was found in the readable `RR:00`-`RR:FF` window. Bytes `0x23` and `0x92`
+initially appeared to track the repeated-letter changes, but a second A/B/A
+test ruled them out. No reproducible display representation has been identified;
+this does not rule out an encoded buffer or storage outside this RAM window.
+Display writes change the visible text; get approval before using them.
+
 Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 1s).
 
 ### Power state

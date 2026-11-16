@@ -87,6 +87,11 @@ It contains secrets: never print or commit it, back it up with mode 600 under
   without the user's consent.
 - Firmware: UART 9600 baud, inter-frame delay 8 ms, response timeout 2 s.
 - `TY:` is the reliable handshake; `RT:` replies are unreliable.
+- `DA:<text>` writes display text (`ok:`); the owner reports a ten-character
+  maximum. `1234567890` and `ABCDEFGHIJ` were confirmed visible. Paused-status
+  RAM dumps found no plain-text marker; repeated A/B/A tests found no
+  reproducible display representation in `RR:00`-`RR:FF`. Bytes `0x23` and
+  `0x92` were false leads. Display writes need approval, like other state changes.
 - `RE:` addresses 16-bit words using only the first two hex digits
   (`RE:0100` reads word `01`), so the EEPROM spans words `00`-`FF`.
 - `RR:xx` returns RAM bytes `xx` and `xx+1`. Byte `0x44` is `01` while on
