@@ -35,6 +35,11 @@ inline void run_counter_tests() {
   hub.set_single_coffee_sensor(&single);
   hub.set_total_coffee_sensor(&total);
   hub.poll_counters_();
+  check(hub.take_command() == "RE:00");
+  hub.handle_counter_("RE:00", {});
+  check(!single.has_state() && !total.has_state() && !hub.pending());
+
+  hub.poll_counters_();
   hub.poll_counters_();  // Must not start an overlapping sweep.
   check(hub.take_command() == "RE:00");
   hub.handle_counter_("RR:44", {});
@@ -55,15 +60,15 @@ inline void run_counter_tests() {
 
   hub.poll_counters_();
   check(hub.take_command() == "RE:00");
-  hub.handle_counter_("RE:00", 19874);
+  hub.handle_counter_("RE:00", 19875);
   check(hub.take_command() == "RE:01");
   hub.handle_counter_("RE:01", {});
-  check(std::isnan(total.state) && single.state == 19874 && !hub.pending());
+  check(total.state == 35690 && single.state == 19875 && !hub.pending());
 
   hub.poll_counters_();
   check(hub.take_command() == "RE:00");
   hub.handle_counter_("RE:00", {});
-  check(std::isnan(single.state) && std::isnan(total.state) && !hub.pending());
+  check(single.state == 19875 && total.state == 35690 && !hub.pending());
 
   // Recovery starts a fresh sum, and six 16-bit counters must not overflow it.
   hub.poll_counters_();

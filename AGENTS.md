@@ -76,6 +76,10 @@ It contains secrets: never print or commit it, back it up with mode 600 under
 
 ## Protocol findings (machine reports `ty:EPSILON MASK 11`)
 
+- Owner-confirmed button commands: `FA:06` = single cup (mild), `FA:07` =
+  two cups, `FA:09` = steam preparation, `FA:02` = rinse. Repeating `FA:06`
+  twice/three times may select normal/strong, but this is not yet confirmed.
+  Do not use the S90/S95 or F7/J6 product mappings for this machine.
 - Firmware: UART 9600 baud, inter-frame delay 8 ms, response timeout 2 s.
 - `TY:` is the reliable handshake; `RT:` replies are unreliable.
 - `RE:` addresses 16-bit words using only the first two hex digits

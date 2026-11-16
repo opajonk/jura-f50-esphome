@@ -163,11 +163,7 @@ void JuraF50::handle_counter_(const std::string &command, const optional<uint16_
   if (!this->counter_pending_ || command != COUNTER_COMMANDS[this->counter_index_])
     return;
   if (!word.has_value()) {
-    ESP_LOGW(TAG, "Coffee counter read failed for %s", command.c_str());
-    if (this->counter_index_ == 0 && this->single_coffee_sensor_ != nullptr)
-      this->single_coffee_sensor_->publish_state(NAN);
-    if (this->total_coffee_sensor_ != nullptr)
-      this->total_coffee_sensor_->publish_state(NAN);
+    ESP_LOGW(TAG, "Coffee counter read failed for %s; retaining last successful values", command.c_str());
     this->counter_pending_ = false;
     return;
   }

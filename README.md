@@ -64,6 +64,38 @@ api:
 
 Queued commands are sent one at a time; the next command is dispatched once the previous one has been answered or timed out.
 
+### Sending the same command repeatedly from Home Assistant
+
+Use a text input to prepare a command and a separate button to send it.
+Editing the text alone does not transmit anything; every button press sends
+the current command, even when it has not changed.
+
+```yaml
+text:
+  - platform: template
+    name: "Jura Command"
+    id: jura_command
+    mode: text
+    optimistic: true
+
+button:
+  - platform: template
+    name: "Send Jura Command"
+    on_press:
+      - lambda: |-
+          const auto &command = id(jura_command).state;
+          if (command.empty() || command.find_first_of("\r\n") != std::string::npos) {
+            ESP_LOGW("jura_command", "Enter a non-empty, single-line command before sending");
+            return;
+          }
+          id(jura).queue_command(command);
+```
+
+Commands can operate the machine. On the tested `EPSILON MASK 11`, the owner
+confirmed `FA:06` = single cup (mild), `FA:07` = two cups, `FA:09` = steam
+preparation, and `FA:02` = rinse. Repeating `FA:06` to select normal/strong is
+not yet confirmed. Do not substitute command mappings from other models.
+
 Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 1s).
 
 ### Power state
@@ -108,9 +140,11 @@ sum from 35,689 to 35,690, matching the machine's displayed lifetime total.
 Other product mappings, including whether zero-valued word `04` belongs in the
 sum, remain provisional; verify them on other machines.
 
-A failed or malformed read reports the affected sensor as unknown and retries
-at the next polling interval. A total is published only after all six reads
-succeed; the reads are sequential, not an atomic snapshot during brewing.
+A failed or malformed read is logged and leaves the last successful counter
+values unchanged, retrying at the next polling interval. Until a sensor's first
+successful read after boot, its value remains unknown. A total is published only
+after all six reads succeed; the reads are sequential, not an atomic snapshot
+during brewing.
 Both sensors use `total_increasing` state class for Home Assistant statistics.
 
 ### Machine clock
