@@ -91,10 +91,34 @@ button:
           id(jura).queue_command(command);
 ```
 
-Commands can operate the machine. On the tested `EPSILON MASK 11`, the owner
-confirmed `FA:06` = single cup (mild), `FA:07` = two cups, `FA:09` = steam
-preparation, and `FA:02` = rinse. Repeating `FA:06` to select normal/strong is
-not yet confirmed. Do not substitute command mappings from other models.
+Commands can operate the machine. Do not substitute command mappings from
+other models.
+
+#### `FA:` commands on the Impressa F50 (`ty:EPSILON MASK 11`)
+
+`FA:xx` appears to simulate a front-panel key press. An `ok:` reply only means
+the command was accepted, not that it did anything visible.
+
+| Command | Status | Observed / likely function |
+| --- | --- | --- |
+| `FA:02` | confirmed | Rinse |
+| `FA:06` | confirmed | Single cup (mild). Pressing again may select normal/strong (unconfirmed) |
+| `FA:07` | confirmed | Two cups |
+| `FA:09` | confirmed | Steam preparation (heats up for steam) |
+| `FA:0C` | confirmed | Rotary dial push button (enter/confirm) |
+| `FA:15` | confirmed | Starts the cleaning programme (tablet) |
+| `FA:08` | `ok:`, effect unknown | Hypothesis: hot water. Q42 notes for another model list `FA:08` as hot water; other models use it for a second espresso product |
+| `FA:0D`, `FA:0E` | tested | Not the rotary dial rotation (unlike on other models); effect otherwise unknown |
+| `FA:10`–`FA:14` | `ok:`, effect unknown | Hypothesis: other panel/maintenance keys or menu navigation (rotary switch, programme/menu, aroma/pre-ground, decalcify, filter). No community source documents these codes, so they are unverified |
+
+Notes from other models (not verified on the F50):
+- [Q42/coffeehack](https://github.com/Q42/coffeehack) lists `FA:01`-`FA:07` as products, `FA:08` as hot water, `FA:09` as steam and `FA:0B` as flush.
+- [ryanalden/esphome-jura-component](https://github.com/ryanalden/esphome-jura-component) maps `FA:0B`-`FA:0F` to user-interface actions: light/exit menu, enter menu, dial counter-clockwise, dial clockwise, and a freeze. `FA:0C` matches the F50's dial button, but `FA:0D`/`FA:0E` do not rotate the dial on the F50 (tested).
+- The F50's maintenance programmes (clean, decalcify, filter) sit next to each other. Since `FA:15` cleans, decalcify or filter replacement may be on a neighbouring code. Test those codes only with water and the drip tray in place, and be ready to switch the machine off.
+
+To identify an unknown code, send it with the machine on and idle, then watch the
+display and the `RR:44` power byte. Diff `RE:` dumps taken before and after to
+see which maintenance counters change.
 
 Options: `intra_byte_delay` (default 1ms), `inter_frame_delay` (default 7ms), `rx_timeout` (default 20ms), `response_timeout` (default 1s).
 
